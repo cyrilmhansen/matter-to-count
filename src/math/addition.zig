@@ -2,6 +2,8 @@ const std = @import("std");
 const number = @import("number.zig");
 const event = @import("../events/event.zig");
 const tape = @import("../events/tape.zig");
+const fixtures = @import("../tests/fixtures.zig");
+const ta = @import("../tests/tape_assert.zig");
 
 pub const AddResult = struct {
     result: number.DigitNumber,
@@ -104,42 +106,34 @@ pub fn addWithEvents(allocator: std.mem.Allocator, lhs: number.DigitNumber, rhs:
 
 test "17 + 8 base10 -> 25 with carry events" {
     const allocator = std.testing.allocator;
-    var lhs = try number.DigitNumber.fromU64(allocator, 10, 17);
+    const fx = fixtures.add_decimal_single_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
-    var rhs = try number.DigitNumber.fromU64(allocator, 10, 8);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
     defer rhs.deinit(allocator);
 
     var res = try addWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
 
-    try std.testing.expectEqual(@as(u64, 25), try res.result.toU64());
-    try std.testing.expect(res.tape.isMonotonic());
-
-    var carry_count: usize = 0;
-    var has_finalize = false;
-    for (res.tape.events) |e| {
-        if (e.kind == .carry_emit) carry_count += 1;
-        if (e.kind == .result_finalize) has_finalize = true;
-    }
-    try std.testing.expectEqual(@as(usize, 1), carry_count);
-    try std.testing.expect(has_finalize);
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 1);
 }
 
 test "199 + 7 base10 -> 206 with cascade carries" {
     const allocator = std.testing.allocator;
-    var lhs = try number.DigitNumber.fromU64(allocator, 10, 199);
+    const fx = fixtures.add_decimal_cascade_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
-    var rhs = try number.DigitNumber.fromU64(allocator, 10, 7);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
     defer rhs.deinit(allocator);
 
     var res = try addWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
 
-    try std.testing.expectEqual(@as(u64, 206), try res.result.toU64());
-
-    var carry_count: usize = 0;
-    for (res.tape.events) |e| {
-        if (e.kind == .carry_emit) carry_count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 2), carry_count);
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 2);
 }

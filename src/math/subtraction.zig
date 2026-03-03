@@ -2,6 +2,8 @@ const std = @import("std");
 const number = @import("number.zig");
 const event = @import("../events/event.zig");
 const tape = @import("../events/tape.zig");
+const fixtures = @import("../tests/fixtures.zig");
+const ta = @import("../tests/tape_assert.zig");
 
 pub const SubResult = struct {
     result: number.DigitNumber,
@@ -91,44 +93,40 @@ pub fn subWithEvents(allocator: std.mem.Allocator, lhs: number.DigitNumber, rhs:
     };
 }
 
-test "52 - 7 base10 -> 45 with one borrow" {
+test "sub_decimal_borrow_once fixture" {
     const allocator = std.testing.allocator;
-    var lhs = try number.DigitNumber.fromU64(allocator, 10, 52);
+    const fx = fixtures.sub_decimal_borrow_once;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
-    var rhs = try number.DigitNumber.fromU64(allocator, 10, 7);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
     defer rhs.deinit(allocator);
 
     var res = try subWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
 
-    try std.testing.expectEqual(@as(u64, 45), try res.result.toU64());
-    try std.testing.expect(res.tape.isMonotonic());
-
-    var borrow_count: usize = 0;
-    var has_finalize = false;
-    for (res.tape.events) |e| {
-        if (e.kind == .borrow_request) borrow_count += 1;
-        if (e.kind == .result_finalize) has_finalize = true;
-    }
-    try std.testing.expectEqual(@as(usize, 1), borrow_count);
-    try std.testing.expect(has_finalize);
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .borrow_request, 1);
+    try ta.expectKindCount(res.tape, .borrow_expand, 1);
 }
 
-test "1000 - 1 base10 -> 999 with borrow chain" {
+test "sub_decimal_borrow_chain fixture" {
     const allocator = std.testing.allocator;
-    var lhs = try number.DigitNumber.fromU64(allocator, 10, 1000);
+    const fx = fixtures.sub_decimal_borrow_chain;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
-    var rhs = try number.DigitNumber.fromU64(allocator, 10, 1);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
     defer rhs.deinit(allocator);
 
     var res = try subWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
 
-    try std.testing.expectEqual(@as(u64, 999), try res.result.toU64());
-
-    var borrow_count: usize = 0;
-    for (res.tape.events) |e| {
-        if (e.kind == .borrow_request) borrow_count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 3), borrow_count);
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .borrow_request, 3);
+    try ta.expectKindCount(res.tape, .borrow_expand, 3);
 }

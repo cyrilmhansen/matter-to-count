@@ -85,5 +85,6 @@ test {
     _ = @import("math/number.zig");
     _ = @import("math/addition.zig");
     _ = @import("math/subtraction.zig");
+    _ = @import("math/shift.zig");
     _ = @import("events/tape.zig");
 }
