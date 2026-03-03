@@ -8,6 +8,8 @@ pub const EventKind = enum {
     column_overflow,
     carry_emit,
     carry_receive,
+    borrow_request,
+    borrow_expand,
     digit_settle,
     result_finalize,
 };
@@ -18,4 +20,5 @@ pub const Event = struct {
     column: u16,
     value: u16,
     carry_to_column: ?u16 = null,
+    borrow_from_column: ?u16 = null,
 };
