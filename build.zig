@@ -72,4 +72,11 @@ pub fn build(b: *std.Build) void {
     checker_test_cmd.step.dependOn(&install_win64.step);
     const checker_test_step = b.step("test-checkerboard", "Integration test: capture screenshot and verify checkerboard visibility");
     checker_test_step.dependOn(&checker_test_cmd.step);
+
+    const scene_overlay_test_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    scene_overlay_test_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/test_scene_overlay_visible.sh");
+    scene_overlay_test_cmd.addArtifactArg(exe_win64);
+    scene_overlay_test_cmd.step.dependOn(&install_win64.step);
+    const scene_overlay_test_step = b.step("test-scene-overlay", "Integration test: scene overlay is visible and changes across timesteps");
+    scene_overlay_test_step.dependOn(&scene_overlay_test_cmd.step);
 }

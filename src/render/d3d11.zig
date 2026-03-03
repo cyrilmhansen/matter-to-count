@@ -41,6 +41,7 @@ const WindowsRenderer = struct {
     rtv: *c.ID3D11RenderTargetView,
     checker_texture: *c.ID3D11Texture2D,
     checker_srv: *c.ID3D11ShaderResourceView,
+    capture_texture: *c.ID3D11Texture2D,
     vertex_shader: *c.ID3D11VertexShader,
     pixel_shader: *c.ID3D11PixelShader,
     input_layout: *c.ID3D11InputLayout,
@@ -133,6 +134,21 @@ const WindowsRenderer = struct {
             log.err("d3d11 create triangle pipeline failed: {}", .{err});
             return null;
         };
+        const capture_texture = createCaptureTexture(device.?, desc.BufferDesc.Width, desc.BufferDesc.Height) catch |err| {
+            _ = tri.vertex_buffer.lpVtbl.*.Release.?(tri.vertex_buffer);
+            _ = tri.input_layout.lpVtbl.*.Release.?(tri.input_layout);
+            _ = tri.pixel_shader.lpVtbl.*.Release.?(tri.pixel_shader);
+            _ = tri.vertex_shader.lpVtbl.*.Release.?(tri.vertex_shader);
+            _ = checker.srv.lpVtbl.*.Release.?(checker.srv);
+            _ = checker.texture.lpVtbl.*.Release.?(checker.texture);
+            _ = bb.rtv.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(bb.rtv)));
+            _ = bb.back_buffer.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(bb.back_buffer)));
+            _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
+            _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
+            _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
+            log.err("d3d11 create capture texture failed: {}", .{err});
+            return null;
+        };
 
         return .{
             .swap_chain = swap_chain.?,
@@ -142,6 +158,7 @@ const WindowsRenderer = struct {
             .rtv = bb.rtv,
             .checker_texture = checker.texture,
             .checker_srv = checker.srv,
+            .capture_texture = capture_texture,
             .vertex_shader = tri.vertex_shader,
             .pixel_shader = tri.pixel_shader,
             .input_layout = tri.input_layout,
@@ -159,6 +176,27 @@ const WindowsRenderer = struct {
         texture: *c.ID3D11Texture2D,
         srv: *c.ID3D11ShaderResourceView,
     };
+
+    fn createCaptureTexture(device: *c.ID3D11Device, tex_w: u32, tex_h: u32) !*c.ID3D11Texture2D {
+        var tex_desc: c.D3D11_TEXTURE2D_DESC = std.mem.zeroes(c.D3D11_TEXTURE2D_DESC);
+        tex_desc.Width = tex_w;
+        tex_desc.Height = tex_h;
+        tex_desc.MipLevels = 1;
+        tex_desc.ArraySize = 1;
+        tex_desc.Format = c.DXGI_FORMAT_R8G8B8A8_UNORM;
+        tex_desc.SampleDesc.Count = 1;
+        tex_desc.Usage = c.D3D11_USAGE_DEFAULT;
+
+        var texture: ?*c.ID3D11Texture2D = null;
+        const hr_tex = device.lpVtbl.*.CreateTexture2D.?(
+            device,
+            &tex_desc,
+            null,
+            &texture,
+        );
+        if (hr_tex != c.S_OK or texture == null) return error.D3D11CreateCaptureTextureFailed;
+        return texture.?;
+    }
 
     const TrianglePipeline = struct {
         vertex_shader: *c.ID3D11VertexShader,
@@ -406,9 +444,9 @@ const WindowsRenderer = struct {
 
     fn roleSize(role: render_plan.DrawRole) f32 {
         return switch (role) {
-            .source_digit, .result_digit => 0.030,
-            .carry_packet, .borrow_packet, .shift_packet => 0.040,
-            .active_marker => 0.020,
+            .source_digit, .result_digit => 0.070,
+            .carry_packet, .borrow_packet, .shift_packet => 0.090,
+            .active_marker => 0.050,
         };
     }
 
@@ -429,12 +467,13 @@ const WindowsRenderer = struct {
         const y0 = cy - half_size;
         const y1 = cy + half_size;
 
+        // Emit clockwise triangles to match D3D11 default front-face winding.
         verts[base.* + 0] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
-        verts[base.* + 1] = .{ .x = x1, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
-        verts[base.* + 2] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 1] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 2] = .{ .x = x1, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
         verts[base.* + 3] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
-        verts[base.* + 4] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
-        verts[base.* + 5] = .{ .x = x0, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 4] = .{ .x = x0, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 5] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
         base.* += 6;
     }
 
@@ -557,6 +596,11 @@ const WindowsRenderer = struct {
             }
         }
 
+        self.context.lpVtbl.*.CopyResource.?(
+            self.context,
+            ptrAs(*c.ID3D11Resource, self.capture_texture),
+            ptrAs(*c.ID3D11Resource, self.back_buffer),
+        );
         _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
         self.frame_index +%= 1;
     }
@@ -579,6 +623,9 @@ const WindowsRenderer = struct {
         const checker = try createCheckerTexture(self.device, width, height);
         self.checker_texture = checker.texture;
         self.checker_srv = checker.srv;
+
+        _ = self.capture_texture.lpVtbl.*.Release.?(self.capture_texture);
+        self.capture_texture = try createCaptureTexture(self.device, width, height);
     }
 
     pub fn deinit(self: *WindowsRenderer) void {
@@ -589,6 +636,7 @@ const WindowsRenderer = struct {
         _ = self.vertex_shader.lpVtbl.*.Release.?(self.vertex_shader);
         _ = self.checker_srv.lpVtbl.*.Release.?(self.checker_srv);
         _ = self.checker_texture.lpVtbl.*.Release.?(self.checker_texture);
+        _ = self.capture_texture.lpVtbl.*.Release.?(self.capture_texture);
         _ = self.rtv.lpVtbl.*.Release.?(self.rtv);
         _ = self.back_buffer.lpVtbl.*.Release.?(self.back_buffer);
         _ = self.context.lpVtbl.*.Release.?(self.context);
@@ -621,7 +669,7 @@ const WindowsRenderer = struct {
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
             ptrAs(*c.ID3D11Resource, staging.?),
-            ptrAs(*c.ID3D11Resource, self.checker_texture),
+            ptrAs(*c.ID3D11Resource, self.capture_texture),
         );
 
         var mapped: c.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
