@@ -2,11 +2,11 @@ const builtin = @import("builtin");
 const std = @import("std");
 const time = @import("time.zig");
 const log = @import("../util/logging.zig");
+const d3d11 = @import("../render/d3d11.zig");
 
-pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8) !void {
+pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8, scene_kind: d3d11.SceneKind) !void {
     if (builtin.os.tag != .windows) return;
     const win32 = @import("../platform/win32/window.zig");
-    const d3d11 = @import("../render/d3d11.zig");
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -18,7 +18,7 @@ pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8) !v
     };
     defer win32.destroy(window);
 
-    var renderer = d3d11.Renderer.init(window.hwnd, window.width, window.height) catch |err| {
+    var renderer = d3d11.Renderer.init(window.hwnd, window.width, window.height, scene_kind) catch |err| {
         log.err("d3d11 init failed: {}", .{err});
         return err;
     };

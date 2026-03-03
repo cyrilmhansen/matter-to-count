@@ -8,6 +8,8 @@ const fixtures = @import("../tests/fixtures.zig");
 const event_scene = @import("../scene/event_scene.zig");
 const layout_map = @import("../scene/layout_map.zig");
 const render_plan = @import("render_plan.zig");
+const subtraction = @import("../math/subtraction.zig");
+const shift = @import("../math/shift.zig");
 
 const c = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
@@ -17,9 +19,14 @@ const c = if (builtin.os.tag == .windows) @cImport({
 }) else struct {};
 
 pub const Renderer = if (builtin.os.tag == .windows) WindowsRenderer else StubRenderer;
+pub const SceneKind = enum {
+    add,
+    sub,
+    shift,
+};
 
 const StubRenderer = struct {
-    pub fn init(_: win32.HWND, _: u32, _: u32) !StubRenderer {
+    pub fn init(_: win32.HWND, _: u32, _: u32, _: SceneKind) !StubRenderer {
         return error.UnsupportedPlatform;
     }
 
@@ -47,8 +54,9 @@ const WindowsRenderer = struct {
     input_layout: *c.ID3D11InputLayout,
     vertex_buffer: *c.ID3D11Buffer,
     frame_index: u32,
+    scene_kind: SceneKind,
 
-    pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
+    pub fn init(hwnd: win32.HWND, width: u32, height: u32, scene_kind: SceneKind) !WindowsRenderer {
         @setRuntimeSafety(false);
         var desc: c.DXGI_SWAP_CHAIN_DESC = std.mem.zeroes(c.DXGI_SWAP_CHAIN_DESC);
         desc.BufferDesc.Width = width;
@@ -63,13 +71,13 @@ const WindowsRenderer = struct {
         desc.Windowed = c.TRUE;
         desc.SwapEffect = c.DXGI_SWAP_EFFECT_DISCARD;
 
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE)) |r| {
+        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE, scene_kind)) |r| {
             log.info("d3d11 init: driver=hardware", .{});
             return r;
         }
 
         log.err("d3d11 hardware init failed, retrying with WARP", .{});
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_WARP)) |r| {
+        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_WARP, scene_kind)) |r| {
             log.info("d3d11 init: driver=warp", .{});
             return r;
         }
@@ -77,7 +85,7 @@ const WindowsRenderer = struct {
         return error.D3D11CreateDeviceAndSwapChainFailed;
     }
 
-    fn tryCreate(desc: c.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE) !?WindowsRenderer {
+    fn tryCreate(desc: c.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE, scene_kind: SceneKind) !?WindowsRenderer {
         @setRuntimeSafety(false);
         var swap_chain: ?*c.IDXGISwapChain = null;
         var device: ?*c.ID3D11Device = null;
@@ -164,6 +172,7 @@ const WindowsRenderer = struct {
             .input_layout = tri.input_layout,
             .vertex_buffer = tri.vertex_buffer,
             .frame_index = 0,
+            .scene_kind = scene_kind,
         };
     }
 
@@ -419,24 +428,44 @@ const WindowsRenderer = struct {
         return v;
     }
 
-    fn buildDemoPlan(allocator: std.mem.Allocator, frame_index: u32) !render_plan.RenderPlan {
-        const fx = fixtures.add_decimal_cascade_carry;
-        var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
-        defer lhs.deinit(allocator);
-        var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
-        defer rhs.deinit(allocator);
-
-        var sum = try addition.addWithEvents(allocator, lhs, rhs);
-        defer sum.deinit(allocator);
-
+    fn buildDemoPlan(self: *WindowsRenderer, allocator: std.mem.Allocator, frame_index: u32) !render_plan.RenderPlan {
         const phase_frames: u32 = 30;
         const cycle: u32 = 5 * phase_frames;
         const local = frame_index % cycle;
         const tick = local / phase_frames;
         const phase = @as(f32, @floatFromInt(local % phase_frames)) / @as(f32, @floatFromInt(phase_frames));
         const sample = event_scene.TimeSample{ .tick = tick, .phase = phase };
-
-        var scene = try event_scene.buildSceneAtTime(allocator, sum.tape, sample);
+        const fx = fixtures.add_decimal_cascade_carry;
+        var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+        defer lhs.deinit(allocator);
+        var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+        defer rhs.deinit(allocator);
+        var scene: event_scene.ArithmeticSceneState = undefined;
+        switch (self.scene_kind) {
+            .add => {
+                var res = try addition.addWithEvents(allocator, lhs, rhs);
+                defer res.deinit(allocator);
+                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
+            },
+            .sub => {
+                const sfx = fixtures.sub_decimal_borrow_chain;
+                var sl = try number.DigitNumber.fromU64(allocator, sfx.base, sfx.lhs);
+                defer sl.deinit(allocator);
+                var sr = try number.DigitNumber.fromU64(allocator, sfx.base, sfx.rhs);
+                defer sr.deinit(allocator);
+                var res = try subtraction.subWithEvents(allocator, sl, sr);
+                defer res.deinit(allocator);
+                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
+            },
+            .shift => {
+                const shfx = fixtures.shift_decimal_left_once;
+                var input = try number.DigitNumber.fromU64(allocator, shfx.base, shfx.lhs);
+                defer input.deinit(allocator);
+                var res = try shift.multiplyByBaseWithEvents(allocator, input);
+                defer res.deinit(allocator);
+                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
+            },
+        }
         defer scene.deinit(allocator);
 
         return render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{});
@@ -486,7 +515,7 @@ const WindowsRenderer = struct {
         _ = width;
         _ = height;
 
-        var plan = try buildDemoPlan(allocator, self.frame_index);
+        var plan = try self.buildDemoPlan(allocator, self.frame_index);
         defer plan.deinit(allocator);
 
         if (plan.points.len == 0) return allocator.alloc(Vertex, 0);

@@ -5,6 +5,7 @@ const time = @import("app/time.zig");
 const scene_builder = @import("scene/builder.zig");
 const scene_state = @import("scene/scene_state.zig");
 const log = @import("util/logging.zig");
+const d3d11 = @import("render/d3d11.zig");
 
 const Config = struct {
     smoke: bool = false,
@@ -13,6 +14,7 @@ const Config = struct {
     width: u32 = 1280,
     height: u32 = 720,
     screenshot_out: ?[]u8 = null,
+    scene_kind: d3d11.SceneKind = .add,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -45,6 +47,18 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
             cfg.screenshot_out = try allocator.dupe(u8, argv[i]);
+        } else if (std.mem.eql(u8, arg, "--scene")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            if (std.mem.eql(u8, argv[i], "add")) {
+                cfg.scene_kind = .add;
+            } else if (std.mem.eql(u8, argv[i], "sub")) {
+                cfg.scene_kind = .sub;
+            } else if (std.mem.eql(u8, argv[i], "shift")) {
+                cfg.scene_kind = .shift;
+            } else {
+                return error.InvalidArguments;
+            }
         }
     }
     return cfg;
@@ -63,7 +77,7 @@ pub fn main() !void {
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out);
+        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind);
     }
 
     var frame: u32 = 0;
