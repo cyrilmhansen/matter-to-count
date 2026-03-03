@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
     exe_win64.linkSystemLibrary("kernel32");
     exe_win64.linkSystemLibrary("d3d11");
     exe_win64.linkSystemLibrary("dxgi");
+    exe_win64.linkSystemLibrary("d3dcompiler_47");
     const check_cmd = b.addSystemCommand(&[_][]const u8{"bash", "scripts/check_win_exe.sh"});
     check_cmd.addArtifactArg(exe_win64);
     check_cmd.step.dependOn(&exe_win64.step);
