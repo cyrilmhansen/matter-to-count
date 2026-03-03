@@ -82,6 +82,7 @@ pub fn main() !void {
 test {
     _ = @import("app/time.zig");
     _ = @import("scene/builder.zig");
+    _ = @import("scene/event_scene.zig");
     _ = @import("math/number.zig");
     _ = @import("math/addition.zig");
     _ = @import("math/subtraction.zig");
