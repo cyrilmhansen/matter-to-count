@@ -3,7 +3,7 @@ const std = @import("std");
 const time = @import("time.zig");
 const log = @import("../util/logging.zig");
 
-pub fn run(frames: u32) !void {
+pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8) !void {
     if (builtin.os.tag != .windows) return;
     const win32 = @import("../platform/win32/window.zig");
     const d3d11 = @import("../render/d3d11.zig");
@@ -12,7 +12,7 @@ pub fn run(frames: u32) !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const window = win32.create(allocator, "Matter to Count - Milestone 1", 1280, 720) catch |err| {
+    const window = win32.create(allocator, "Matter to Count - Milestone 1", width, height) catch |err| {
         log.err("win32.create failed: {}", .{err});
         return err;
     };
@@ -37,11 +37,17 @@ pub fn run(frames: u32) !void {
                 fb_height = ev.height;
                 renderer.resize(fb_width, fb_height) catch |err| {
                     log.err("d3d11 resize failed ({d}x{d}): {}", .{ fb_width, fb_height, err });
-                    // Keep rendering with previous resources; emulator paths can report non-fatal resize failures.
                 };
             }
         }
         renderer.render(fb_width, fb_height);
         clock.tick();
+    }
+
+    if (screenshot_out) |path| {
+        renderer.captureScreenshot(path, fb_width, fb_height) catch |err| {
+            log.err("screenshot capture failed ({s}): {}", .{ path, err });
+            return err;
+        };
     }
 }

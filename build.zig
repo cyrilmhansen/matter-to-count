@@ -64,4 +64,11 @@ pub fn build(b: *std.Build) void {
     smoke_cmd.step.dependOn(&install_win64.step);
     const smoke_step = b.step("smoke-win64", "Build, check, and run Win64 smoke test via Proton/Wine");
     smoke_step.dependOn(&smoke_cmd.step);
+
+    const checker_test_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    checker_test_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/test_checkerboard_visible.sh");
+    checker_test_cmd.addArtifactArg(exe_win64);
+    checker_test_cmd.step.dependOn(&install_win64.step);
+    const checker_test_step = b.step("test-checkerboard", "Integration test: capture screenshot and verify checkerboard visibility");
+    checker_test_step.dependOn(&checker_test_cmd.step);
 }

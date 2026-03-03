@@ -10,6 +10,9 @@ const Config = struct {
     smoke: bool = false,
     frames: u32 = 120,
     seed: u64 = 1,
+    width: u32 = 1280,
+    height: u32 = 720,
+    screenshot_out: ?[]u8 = null,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -30,6 +33,18 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
             cfg.seed = try std.fmt.parseInt(u64, argv[i], 10);
+        } else if (std.mem.eql(u8, arg, "--width")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            cfg.width = try std.fmt.parseInt(u32, argv[i], 10);
+        } else if (std.mem.eql(u8, arg, "--height")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            cfg.height = try std.fmt.parseInt(u32, argv[i], 10);
+        } else if (std.mem.eql(u8, arg, "--screenshot-out")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            cfg.screenshot_out = try allocator.dupe(u8, argv[i]);
         }
     }
     return cfg;
@@ -41,13 +56,14 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const cfg = try parseArgs(allocator);
+    defer if (cfg.screenshot_out) |p| allocator.free(p);
 
     var clock = time.FixedClock.init(1.0 / 60.0);
     const scene = try scene_builder.buildSimpleDeterministicScene(allocator, cfg.seed);
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames);
+        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out);
     }
 
     var frame: u32 = 0;

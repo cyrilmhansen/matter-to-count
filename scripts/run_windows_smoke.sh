@@ -16,9 +16,15 @@ fi
 
 MTC_FRAMES="${MTC_FRAMES:-120}"
 MTC_SEED="${MTC_SEED:-1}"
+MTC_EXTRA_ARGS="${MTC_EXTRA_ARGS:-}"
 MTC_DISABLE_PROTON="${MTC_DISABLE_PROTON:-0}"
 STEAM_COMPAT_DATA_PATH="${STEAM_COMPAT_DATA_PATH:-$PWD/.steam-compat/matter-to-count}"
 STEAM_COMPAT_CLIENT_INSTALL_PATH="${STEAM_COMPAT_CLIENT_INSTALL_PATH:-}"
+
+extra_args=()
+if [[ -n "${MTC_EXTRA_ARGS}" ]]; then
+  read -r -a extra_args <<<"${MTC_EXTRA_ARGS}"
+fi
 
 RUNTIME=""
 if [[ "${MTC_DISABLE_PROTON}" != "1" ]]; then
@@ -63,9 +69,9 @@ if [[ "$(basename "${RUNTIME}")" == "proton" ]]; then
   mkdir -p "${STEAM_COMPAT_DATA_PATH}"
   export STEAM_COMPAT_DATA_PATH
   export STEAM_COMPAT_CLIENT_INSTALL_PATH
-  "${RUNTIME}" run "${SMOKE_EXE}" --smoke --frames "${MTC_FRAMES}" --seed "${MTC_SEED}" 2>&1 | tee "$tmp_log"
+  "${RUNTIME}" run "${SMOKE_EXE}" --smoke --frames "${MTC_FRAMES}" --seed "${MTC_SEED}" "${extra_args[@]}" 2>&1 | tee "$tmp_log"
 else
-  "${RUNTIME}" "${SMOKE_EXE}" --smoke --frames "${MTC_FRAMES}" --seed "${MTC_SEED}" 2>&1 | tee "$tmp_log"
+  "${RUNTIME}" "${SMOKE_EXE}" --smoke --frames "${MTC_FRAMES}" --seed "${MTC_SEED}" "${extra_args[@]}" 2>&1 | tee "$tmp_log"
 fi
 
 if ! rg -q "^SMOKE_OK " "$tmp_log"; then
