@@ -5,7 +5,7 @@ const time = @import("app/time.zig");
 const scene_builder = @import("scene/builder.zig");
 const scene_state = @import("scene/scene_state.zig");
 const log = @import("util/logging.zig");
-const d3d11 = @import("render/d3d11.zig");
+const scene_controller = @import("app/scene_controller.zig");
 
 const Config = struct {
     smoke: bool = false,
@@ -14,7 +14,7 @@ const Config = struct {
     width: u32 = 1280,
     height: u32 = 720,
     screenshot_out: ?[]u8 = null,
-    scene_kind: d3d11.SceneKind = .add,
+    scene_kind: scene_controller.SceneKind = .add,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -50,12 +50,8 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
         } else if (std.mem.eql(u8, arg, "--scene")) {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
-            if (std.mem.eql(u8, argv[i], "add")) {
-                cfg.scene_kind = .add;
-            } else if (std.mem.eql(u8, argv[i], "sub")) {
-                cfg.scene_kind = .sub;
-            } else if (std.mem.eql(u8, argv[i], "shift")) {
-                cfg.scene_kind = .shift;
+            if (scene_controller.SceneKind.parse(argv[i])) |kind| {
+                cfg.scene_kind = kind;
             } else {
                 return error.InvalidArguments;
             }
@@ -95,6 +91,7 @@ pub fn main() !void {
 
 test {
     _ = @import("app/time.zig");
+    _ = @import("app/scene_controller.zig");
     _ = @import("scene/builder.zig");
     _ = @import("scene/event_scene.zig");
     _ = @import("scene/event_snapshot.zig");

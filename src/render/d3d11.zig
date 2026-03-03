@@ -2,14 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
 const log = @import("../util/logging.zig");
-const number = @import("../math/number.zig");
-const addition = @import("../math/addition.zig");
-const fixtures = @import("../tests/fixtures.zig");
-const event_scene = @import("../scene/event_scene.zig");
-const layout_map = @import("../scene/layout_map.zig");
 const render_plan = @import("render_plan.zig");
-const subtraction = @import("../math/subtraction.zig");
-const shift = @import("../math/shift.zig");
 
 const c = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
@@ -19,18 +12,13 @@ const c = if (builtin.os.tag == .windows) @cImport({
 }) else struct {};
 
 pub const Renderer = if (builtin.os.tag == .windows) WindowsRenderer else StubRenderer;
-pub const SceneKind = enum {
-    add,
-    sub,
-    shift,
-};
 
 const StubRenderer = struct {
-    pub fn init(_: win32.HWND, _: u32, _: u32, _: SceneKind) !StubRenderer {
+    pub fn init(_: win32.HWND, _: u32, _: u32) !StubRenderer {
         return error.UnsupportedPlatform;
     }
 
-    pub fn render(_: *StubRenderer, _: u32, _: u32) void {}
+    pub fn render(_: *StubRenderer, _: u32, _: u32, _: render_plan.RenderPlan, _: []const u8) void {}
 
     pub fn resize(_: *StubRenderer, _: u32, _: u32) !void {}
 
@@ -40,7 +28,6 @@ const StubRenderer = struct {
 const WindowsRenderer = struct {
     const Vertex = extern struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
     const MaxDynamicVertices: u32 = 8192;
-    const PhaseFrames: u32 = 30;
     const LegendZ: f32 = 0.95;
     const LegendCellW: f32 = 0.010;
     const LegendCellH: f32 = 0.018;
@@ -59,10 +46,8 @@ const WindowsRenderer = struct {
     pixel_shader: *c.ID3D11PixelShader,
     input_layout: *c.ID3D11InputLayout,
     vertex_buffer: *c.ID3D11Buffer,
-    frame_index: u32,
-    scene_kind: SceneKind,
 
-    pub fn init(hwnd: win32.HWND, width: u32, height: u32, scene_kind: SceneKind) !WindowsRenderer {
+    pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
         var desc: c.DXGI_SWAP_CHAIN_DESC = std.mem.zeroes(c.DXGI_SWAP_CHAIN_DESC);
         desc.BufferDesc.Width = width;
@@ -77,13 +62,13 @@ const WindowsRenderer = struct {
         desc.Windowed = c.TRUE;
         desc.SwapEffect = c.DXGI_SWAP_EFFECT_DISCARD;
 
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE, scene_kind)) |r| {
+        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE)) |r| {
             log.info("d3d11 init: driver=hardware", .{});
             return r;
         }
 
         log.err("d3d11 hardware init failed, retrying with WARP", .{});
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_WARP, scene_kind)) |r| {
+        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_WARP)) |r| {
             log.info("d3d11 init: driver=warp", .{});
             return r;
         }
@@ -91,7 +76,7 @@ const WindowsRenderer = struct {
         return error.D3D11CreateDeviceAndSwapChainFailed;
     }
 
-    fn tryCreate(desc: c.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE, scene_kind: SceneKind) !?WindowsRenderer {
+    fn tryCreate(desc: c.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE) !?WindowsRenderer {
         @setRuntimeSafety(false);
         var swap_chain: ?*c.IDXGISwapChain = null;
         var device: ?*c.ID3D11Device = null;
@@ -177,8 +162,6 @@ const WindowsRenderer = struct {
             .pixel_shader = tri.pixel_shader,
             .input_layout = tri.input_layout,
             .vertex_buffer = tri.vertex_buffer,
-            .frame_index = 0,
-            .scene_kind = scene_kind,
         };
     }
 
@@ -434,48 +417,6 @@ const WindowsRenderer = struct {
         return v;
     }
 
-    fn buildDemoPlan(self: *WindowsRenderer, allocator: std.mem.Allocator, frame_index: u32) !render_plan.RenderPlan {
-        const cycle: u32 = 5 * PhaseFrames;
-        const local = frame_index % cycle;
-        const tick = local / PhaseFrames;
-        const phase = @as(f32, @floatFromInt(local % PhaseFrames)) / @as(f32, @floatFromInt(PhaseFrames));
-        const sample = event_scene.TimeSample{ .tick = tick, .phase = phase };
-        const fx = fixtures.add_decimal_cascade_carry;
-        var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
-        defer lhs.deinit(allocator);
-        var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
-        defer rhs.deinit(allocator);
-        var scene: event_scene.ArithmeticSceneState = undefined;
-        switch (self.scene_kind) {
-            .add => {
-                var res = try addition.addWithEvents(allocator, lhs, rhs);
-                defer res.deinit(allocator);
-                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
-            },
-            .sub => {
-                const sfx = fixtures.sub_decimal_borrow_chain;
-                var sl = try number.DigitNumber.fromU64(allocator, sfx.base, sfx.lhs);
-                defer sl.deinit(allocator);
-                var sr = try number.DigitNumber.fromU64(allocator, sfx.base, sfx.rhs);
-                defer sr.deinit(allocator);
-                var res = try subtraction.subWithEvents(allocator, sl, sr);
-                defer res.deinit(allocator);
-                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
-            },
-            .shift => {
-                const shfx = fixtures.shift_decimal_left_once;
-                var input = try number.DigitNumber.fromU64(allocator, shfx.base, shfx.lhs);
-                defer input.deinit(allocator);
-                var res = try shift.multiplyByBaseWithEvents(allocator, input);
-                defer res.deinit(allocator);
-                scene = try event_scene.buildSceneAtTime(allocator, res.tape, sample);
-            },
-        }
-        defer scene.deinit(allocator);
-
-        return render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{});
-    }
-
     fn glyphRows(ch: u8) [5]u8 {
         return switch (ch) {
             '0' => .{ 0b111, 0b101, 0b101, 0b101, 0b111 },
@@ -500,14 +441,6 @@ const WindowsRenderer = struct {
             'U' => .{ 0b101, 0b101, 0b101, 0b101, 0b111 },
             ' ' => .{ 0, 0, 0, 0, 0 },
             else => .{ 0, 0, 0, 0, 0 },
-        };
-    }
-
-    fn sceneLabel(kind: SceneKind) []const u8 {
-        return switch (kind) {
-            .add => "ADD",
-            .sub => "SUB",
-            .shift => "SHIFT",
         };
     }
 
@@ -594,20 +527,12 @@ const WindowsRenderer = struct {
         allocator: std.mem.Allocator,
         width: u32,
         height: u32,
+        plan: render_plan.RenderPlan,
+        legend_text: []const u8,
     ) ![]Vertex {
+        _ = self;
         _ = width;
         _ = height;
-
-        var plan = try self.buildDemoPlan(allocator, self.frame_index);
-        defer plan.deinit(allocator);
-
-        const cycle: u32 = 5 * PhaseFrames;
-        const local = self.frame_index % cycle;
-        const tick = local / PhaseFrames;
-        const phase_pct: u32 = ((local % PhaseFrames) * 100) / PhaseFrames;
-        const label = sceneLabel(self.scene_kind);
-        var legend_buf: [64]u8 = undefined;
-        const legend_text = try std.fmt.bufPrint(&legend_buf, "{s} T{d} P{d:0>2}", .{ label, tick, phase_pct });
 
         if (plan.points.len == 0 and legend_text.len == 0) return allocator.alloc(Vertex, 0);
         const legend_budget: usize = legend_text.len * 15 * 6;
@@ -660,7 +585,7 @@ const WindowsRenderer = struct {
         return vertices[0..n];
     }
 
-    pub fn render(self: *WindowsRenderer, width: u32, height: u32) void {
+    pub fn render(self: *WindowsRenderer, width: u32, height: u32, plan: render_plan.RenderPlan, legend_text: []const u8) void {
         @setRuntimeSafety(false);
         var rtvs = [_]?*c.ID3D11RenderTargetView{self.rtv};
         self.context.lpVtbl.*.OMSetRenderTargets.?(self.context, 1, &rtvs, null);
@@ -688,10 +613,9 @@ const WindowsRenderer = struct {
         self.context.lpVtbl.*.PSSetShader.?(self.context, self.pixel_shader, null, 0);
 
         var vertex_count: u32 = 0;
-        const verts = self.buildPlanVertices(std.heap.c_allocator, width, height) catch |err| {
+        const verts = self.buildPlanVertices(std.heap.c_allocator, width, height, plan, legend_text) catch |err| {
             log.err("render plan build failed: {}", .{err});
             _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
-            self.frame_index +%= 1;
             return;
         };
         defer std.heap.c_allocator.free(verts);
@@ -724,7 +648,6 @@ const WindowsRenderer = struct {
             ptrAs(*c.ID3D11Resource, self.back_buffer),
         );
         _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
-        self.frame_index +%= 1;
     }
 
     pub fn resize(self: *WindowsRenderer, width: u32, height: u32) !void {
