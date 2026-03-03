@@ -31,6 +31,19 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
+    const rebaseline_mod = b.createModule(.{
+        .root_source_file = b.path("src/rebaseline_keyframes.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const rebaseline_exe = b.addExecutable(.{
+        .name = "rebaseline-keyframes",
+        .root_module = rebaseline_mod,
+    });
+    const run_rebaseline = b.addRunArtifact(rebaseline_exe);
+    const rebaseline_step = b.step("rebaseline-keyframes", "Regenerate canonical keyframe baseline hashes");
+    rebaseline_step.dependOn(&run_rebaseline.step);
+
     const win64 = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu });
     const win64_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),

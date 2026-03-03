@@ -4,6 +4,7 @@ const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
 const shift = @import("../math/shift.zig");
 const fixtures = @import("../tests/fixtures.zig");
+const keyframes = @import("../tests/keyframes.zig");
 const es = @import("event_scene.zig");
 
 fn quantizeCoord(v: f32) i32 {
@@ -94,23 +95,10 @@ test "compact snapshot includes semantic fields" {
 
 test "snapshot baseline values" {
     const allocator = std.testing.allocator;
-
-    var add_mid = try addSceneAt(allocator, fixtures.add_decimal_single_carry, .{ .tick = 0, .phase = 0.5 });
-    defer add_mid.deinit(allocator);
-    var sub_mid = try subSceneAt(allocator, fixtures.sub_decimal_borrow_chain, .{ .tick = 1, .phase = 0.4 });
-    defer sub_mid.deinit(allocator);
-    var shift_mid = try shiftSceneAt(allocator, fixtures.shift_decimal_left_once, .{ .tick = 0, .phase = 0.5 });
-    defer shift_mid.deinit(allocator);
-    var add_final = try addSceneAt(allocator, fixtures.add_decimal_cascade_carry, .{ .tick = 4, .phase = 1.0 });
-    defer add_final.deinit(allocator);
-
-    const h_add_mid = try snapshotHash(allocator, add_mid);
-    const h_sub_mid = try snapshotHash(allocator, sub_mid);
-    const h_shift_mid = try snapshotHash(allocator, shift_mid);
-    const h_add_final = try snapshotHash(allocator, add_final);
-    // Baseline values are pinned on this repository/toolchain for deterministic keyframes.
-    try std.testing.expectEqual(@as(u64, 0x42afce89f02d1378), h_add_mid);
-    try std.testing.expectEqual(@as(u64, 0xf2e2b6c9af9d7647), h_sub_mid);
-    try std.testing.expectEqual(@as(u64, 0xf9f5a0747b43e28c), h_shift_mid);
-    try std.testing.expectEqual(@as(u64, 0x506392639f6b1b4d), h_add_final);
+    for (keyframes.canonical, 0..) |kf, i| {
+        var scene = try keyframes.buildSceneForKeyframe(allocator, kf);
+        defer scene.deinit(allocator);
+        const actual = try snapshotHash(allocator, scene);
+        try std.testing.expectEqual(keyframes.baselines[i].semantic, actual);
+    }
 }

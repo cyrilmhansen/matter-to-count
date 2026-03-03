@@ -4,6 +4,7 @@ const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
 const shift = @import("../math/shift.zig");
 const fixtures = @import("../tests/fixtures.zig");
+const keyframes = @import("../tests/keyframes.zig");
 const es = @import("../scene/event_scene.zig");
 const layout = @import("../scene/layout_map.zig");
 
@@ -207,34 +208,13 @@ test "render plan invariants for add mid-carry keyframe" {
 test "render plan deterministic baselines for keyframes" {
     const allocator = std.testing.allocator;
     const cfg = layout.LayoutConfig{};
-
-    var add_mid = try addSceneAt(allocator, fixtures.add_decimal_single_carry, .{ .tick = 0, .phase = 0.5 });
-    defer add_mid.deinit(allocator);
-    var sub_mid = try subSceneAt(allocator, fixtures.sub_decimal_borrow_chain, .{ .tick = 1, .phase = 0.4 });
-    defer sub_mid.deinit(allocator);
-    var shift_mid = try shiftSceneAt(allocator, fixtures.shift_decimal_left_once, .{ .tick = 0, .phase = 0.5 });
-    defer shift_mid.deinit(allocator);
-    var add_final = try addSceneAt(allocator, fixtures.add_decimal_cascade_carry, .{ .tick = 4, .phase = 1.0 });
-    defer add_final.deinit(allocator);
-
-    var p_add_mid = try buildPlan(allocator, add_mid, cfg);
-    defer p_add_mid.deinit(allocator);
-    var p_sub_mid = try buildPlan(allocator, sub_mid, cfg);
-    defer p_sub_mid.deinit(allocator);
-    var p_shift_mid = try buildPlan(allocator, shift_mid, cfg);
-    defer p_shift_mid.deinit(allocator);
-    var p_add_final = try buildPlan(allocator, add_final, cfg);
-    defer p_add_final.deinit(allocator);
-
-    const h_add_mid = planHash(p_add_mid);
-    const h_sub_mid = planHash(p_sub_mid);
-    const h_shift_mid = planHash(p_shift_mid);
-    const h_add_final = planHash(p_add_final);
-
-    try std.testing.expectEqual(@as(u64, 0xfbc9c97827ddbc0d), h_add_mid);
-    try std.testing.expectEqual(@as(u64, 0xead84796a4f2a66a), h_sub_mid);
-    try std.testing.expectEqual(@as(u64, 0xaf0762452c5589bf), h_shift_mid);
-    try std.testing.expectEqual(@as(u64, 0x92036b0a4465ce76), h_add_final);
+    for (keyframes.canonical, 0..) |kf, i| {
+        var scene = try keyframes.buildSceneForKeyframe(allocator, kf);
+        defer scene.deinit(allocator);
+        var plan = try buildPlan(allocator, scene, cfg);
+        defer plan.deinit(allocator);
+        try std.testing.expectEqual(keyframes.baselines[i].plan, planHash(plan));
+    }
 }
 
 test "render plan hash changes across phase" {
