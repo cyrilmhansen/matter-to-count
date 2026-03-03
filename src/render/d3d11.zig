@@ -40,6 +40,12 @@ const StubRenderer = struct {
 const WindowsRenderer = struct {
     const Vertex = extern struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
     const MaxDynamicVertices: u32 = 8192;
+    const PhaseFrames: u32 = 30;
+    const LegendZ: f32 = 0.95;
+    const LegendCellW: f32 = 0.010;
+    const LegendCellH: f32 = 0.018;
+    const LegendGap: f32 = 0.003;
+    const LegendCharSpacing: f32 = 0.010;
 
     swap_chain: *c.IDXGISwapChain,
     device: *c.ID3D11Device,
@@ -429,11 +435,10 @@ const WindowsRenderer = struct {
     }
 
     fn buildDemoPlan(self: *WindowsRenderer, allocator: std.mem.Allocator, frame_index: u32) !render_plan.RenderPlan {
-        const phase_frames: u32 = 30;
-        const cycle: u32 = 5 * phase_frames;
+        const cycle: u32 = 5 * PhaseFrames;
         const local = frame_index % cycle;
-        const tick = local / phase_frames;
-        const phase = @as(f32, @floatFromInt(local % phase_frames)) / @as(f32, @floatFromInt(phase_frames));
+        const tick = local / PhaseFrames;
+        const phase = @as(f32, @floatFromInt(local % PhaseFrames)) / @as(f32, @floatFromInt(PhaseFrames));
         const sample = event_scene.TimeSample{ .tick = tick, .phase = phase };
         const fx = fixtures.add_decimal_cascade_carry;
         var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
@@ -469,6 +474,84 @@ const WindowsRenderer = struct {
         defer scene.deinit(allocator);
 
         return render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{});
+    }
+
+    fn glyphRows(ch: u8) [5]u8 {
+        return switch (ch) {
+            '0' => .{ 0b111, 0b101, 0b101, 0b101, 0b111 },
+            '1' => .{ 0b010, 0b110, 0b010, 0b010, 0b111 },
+            '2' => .{ 0b111, 0b001, 0b111, 0b100, 0b111 },
+            '3' => .{ 0b111, 0b001, 0b111, 0b001, 0b111 },
+            '4' => .{ 0b101, 0b101, 0b111, 0b001, 0b001 },
+            '5' => .{ 0b111, 0b100, 0b111, 0b001, 0b111 },
+            '6' => .{ 0b111, 0b100, 0b111, 0b101, 0b111 },
+            '7' => .{ 0b111, 0b001, 0b001, 0b001, 0b001 },
+            '8' => .{ 0b111, 0b101, 0b111, 0b101, 0b111 },
+            '9' => .{ 0b111, 0b101, 0b111, 0b001, 0b111 },
+            'A' => .{ 0b111, 0b101, 0b111, 0b101, 0b101 },
+            'B' => .{ 0b110, 0b101, 0b110, 0b101, 0b110 },
+            'D' => .{ 0b110, 0b101, 0b101, 0b101, 0b110 },
+            'F' => .{ 0b111, 0b100, 0b111, 0b100, 0b100 },
+            'H' => .{ 0b101, 0b101, 0b111, 0b101, 0b101 },
+            'I' => .{ 0b111, 0b010, 0b010, 0b010, 0b111 },
+            'P' => .{ 0b111, 0b101, 0b111, 0b100, 0b100 },
+            'S' => .{ 0b111, 0b100, 0b111, 0b001, 0b111 },
+            'T' => .{ 0b111, 0b010, 0b010, 0b010, 0b010 },
+            'U' => .{ 0b101, 0b101, 0b101, 0b101, 0b111 },
+            ' ' => .{ 0, 0, 0, 0, 0 },
+            else => .{ 0, 0, 0, 0, 0 },
+        };
+    }
+
+    fn sceneLabel(kind: SceneKind) []const u8 {
+        return switch (kind) {
+            .add => "ADD",
+            .sub => "SUB",
+            .shift => "SHIFT",
+        };
+    }
+
+    fn appendSolidQuadNdc(
+        verts: []Vertex,
+        base: *usize,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        z: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    ) void {
+        verts[base.* + 0] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 1] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 2] = .{ .x = x1, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 3] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 4] = .{ .x = x0, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 5] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        base.* += 6;
+    }
+
+    fn appendLegendText(verts: []Vertex, base: *usize, text: []const u8) void {
+        var pen_x: f32 = -0.96;
+        const top_y: f32 = 0.96;
+        for (text) |ch| {
+            const rows = glyphRows(ch);
+            for (rows, 0..) |mask, row| {
+                const py0 = top_y - @as(f32, @floatFromInt(row)) * (LegendCellH + LegendGap) - LegendCellH;
+                const py1 = py0 + LegendCellH;
+                var col: usize = 0;
+                while (col < 3) : (col += 1) {
+                    const bit: u8 = @as(u8, 1) << @as(u3, @intCast(2 - col));
+                    if ((mask & bit) == 0) continue;
+                    const px0 = pen_x + @as(f32, @floatFromInt(col)) * (LegendCellW + LegendGap);
+                    const px1 = px0 + LegendCellW;
+                    appendSolidQuadNdc(verts, base, px0, py0, px1, py1, LegendZ, 0.98, 0.98, 0.98, 1.0);
+                }
+            }
+            pen_x += 3.0 * (LegendCellW + LegendGap) + LegendCharSpacing;
+        }
     }
 
     fn roleSize(role: render_plan.DrawRole) f32 {
@@ -518,8 +601,17 @@ const WindowsRenderer = struct {
         var plan = try self.buildDemoPlan(allocator, self.frame_index);
         defer plan.deinit(allocator);
 
-        if (plan.points.len == 0) return allocator.alloc(Vertex, 0);
-        const needed: usize = plan.points.len * 6;
+        const cycle: u32 = 5 * PhaseFrames;
+        const local = self.frame_index % cycle;
+        const tick = local / PhaseFrames;
+        const phase_pct: u32 = ((local % PhaseFrames) * 100) / PhaseFrames;
+        const label = sceneLabel(self.scene_kind);
+        var legend_buf: [64]u8 = undefined;
+        const legend_text = try std.fmt.bufPrint(&legend_buf, "{s} T{d} P{d:0>2}", .{ label, tick, phase_pct });
+
+        if (plan.points.len == 0 and legend_text.len == 0) return allocator.alloc(Vertex, 0);
+        const legend_budget: usize = legend_text.len * 15 * 6;
+        const needed: usize = plan.points.len * 6 + legend_budget;
         if (needed > MaxDynamicVertices) return error.RenderPlanTooLarge;
 
         var min_x = plan.points[0].x;
@@ -563,8 +655,9 @@ const WindowsRenderer = struct {
                 clamp01(p.a),
             );
         }
+        appendLegendText(vertices, &n, legend_text);
 
-        return vertices;
+        return vertices[0..n];
     }
 
     pub fn render(self: *WindowsRenderer, width: u32, height: u32) void {
