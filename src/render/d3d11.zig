@@ -2,6 +2,12 @@ const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
 const log = @import("../util/logging.zig");
+const number = @import("../math/number.zig");
+const addition = @import("../math/addition.zig");
+const fixtures = @import("../tests/fixtures.zig");
+const event_scene = @import("../scene/event_scene.zig");
+const layout_map = @import("../scene/layout_map.zig");
+const render_plan = @import("render_plan.zig");
 
 const c = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
@@ -25,6 +31,9 @@ const StubRenderer = struct {
 };
 
 const WindowsRenderer = struct {
+    const Vertex = extern struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
+    const MaxDynamicVertices: u32 = 8192;
+
     swap_chain: *c.IDXGISwapChain,
     device: *c.ID3D11Device,
     context: *c.ID3D11DeviceContext,
@@ -36,6 +45,7 @@ const WindowsRenderer = struct {
     pixel_shader: *c.ID3D11PixelShader,
     input_layout: *c.ID3D11InputLayout,
     vertex_buffer: *c.ID3D11Buffer,
+    frame_index: u32,
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
@@ -136,6 +146,7 @@ const WindowsRenderer = struct {
             .pixel_shader = tri.pixel_shader,
             .input_layout = tri.input_layout,
             .vertex_buffer = tri.vertex_buffer,
+            .frame_index = 0,
         };
     }
 
@@ -262,24 +273,17 @@ const WindowsRenderer = struct {
             return error.D3D11CreateInputLayoutFailed;
         }
 
-        const Vertex = extern struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
-        const verts = [_]Vertex{
-            .{ .x = 0.0, .y = 0.6, .z = 0.0, .r = 1.0, .g = 0.2, .b = 0.2, .a = 1.0 },
-            .{ .x = 0.6, .y = -0.6, .z = 0.0, .r = 0.2, .g = 1.0, .b = 0.2, .a = 1.0 },
-            .{ .x = -0.6, .y = -0.6, .z = 0.0, .r = 0.2, .g = 0.3, .b = 1.0, .a = 1.0 },
-        };
         var vb_desc: c.D3D11_BUFFER_DESC = std.mem.zeroes(c.D3D11_BUFFER_DESC);
-        vb_desc.ByteWidth = @sizeOf(@TypeOf(verts));
-        vb_desc.Usage = c.D3D11_USAGE_DEFAULT;
+        vb_desc.ByteWidth = MaxDynamicVertices * @sizeOf(Vertex);
+        vb_desc.Usage = c.D3D11_USAGE_DYNAMIC;
         vb_desc.BindFlags = c.D3D11_BIND_VERTEX_BUFFER;
-        var vb_data: c.D3D11_SUBRESOURCE_DATA = std.mem.zeroes(c.D3D11_SUBRESOURCE_DATA);
-        vb_data.pSysMem = ptrAs(*const anyopaque, &verts);
+        vb_desc.CPUAccessFlags = c.D3D11_CPU_ACCESS_WRITE;
 
         var vb: ?*c.ID3D11Buffer = null;
         const hr_vb = device.lpVtbl.*.CreateBuffer.?(
             device,
             &vb_desc,
-            &vb_data,
+            null,
             &vb,
         );
         if (hr_vb != c.S_OK or vb == null) {
@@ -371,6 +375,130 @@ const WindowsRenderer = struct {
         return .{ .back_buffer = back_buffer, .rtv = rtv.? };
     }
 
+    fn clamp01(v: f32) f32 {
+        if (v < 0.0) return 0.0;
+        if (v > 1.0) return 1.0;
+        return v;
+    }
+
+    fn buildDemoPlan(allocator: std.mem.Allocator, frame_index: u32) !render_plan.RenderPlan {
+        const fx = fixtures.add_decimal_cascade_carry;
+        var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+        defer lhs.deinit(allocator);
+        var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+        defer rhs.deinit(allocator);
+
+        var sum = try addition.addWithEvents(allocator, lhs, rhs);
+        defer sum.deinit(allocator);
+
+        const phase_frames: u32 = 30;
+        const cycle: u32 = 5 * phase_frames;
+        const local = frame_index % cycle;
+        const tick = local / phase_frames;
+        const phase = @as(f32, @floatFromInt(local % phase_frames)) / @as(f32, @floatFromInt(phase_frames));
+        const sample = event_scene.TimeSample{ .tick = tick, .phase = phase };
+
+        var scene = try event_scene.buildSceneAtTime(allocator, sum.tape, sample);
+        defer scene.deinit(allocator);
+
+        return render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{});
+    }
+
+    fn roleSize(role: render_plan.DrawRole) f32 {
+        return switch (role) {
+            .source_digit, .result_digit => 0.030,
+            .carry_packet, .borrow_packet, .shift_packet => 0.040,
+            .active_marker => 0.020,
+        };
+    }
+
+    fn appendQuad(
+        verts: []Vertex,
+        base: *usize,
+        cx: f32,
+        cy: f32,
+        z: f32,
+        half_size: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    ) void {
+        const x0 = cx - half_size;
+        const x1 = cx + half_size;
+        const y0 = cy - half_size;
+        const y1 = cy + half_size;
+
+        verts[base.* + 0] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 1] = .{ .x = x1, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 2] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 3] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 4] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 5] = .{ .x = x0, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        base.* += 6;
+    }
+
+    fn buildPlanVertices(
+        self: *WindowsRenderer,
+        allocator: std.mem.Allocator,
+        width: u32,
+        height: u32,
+    ) ![]Vertex {
+        _ = width;
+        _ = height;
+
+        var plan = try buildDemoPlan(allocator, self.frame_index);
+        defer plan.deinit(allocator);
+
+        if (plan.points.len == 0) return allocator.alloc(Vertex, 0);
+        const needed: usize = plan.points.len * 6;
+        if (needed > MaxDynamicVertices) return error.RenderPlanTooLarge;
+
+        var min_x = plan.points[0].x;
+        var max_x = plan.points[0].x;
+        var min_y = plan.points[0].y;
+        var max_y = plan.points[0].y;
+        for (plan.points[1..]) |p| {
+            min_x = @min(min_x, p.x);
+            max_x = @max(max_x, p.x);
+            min_y = @min(min_y, p.y);
+            max_y = @max(max_y, p.y);
+        }
+        const pad = 0.25;
+        min_x -= pad;
+        max_x += pad;
+        min_y -= pad;
+        max_y += pad;
+        var span_x = max_x - min_x;
+        var span_y = max_y - min_y;
+        if (span_x < 0.001) span_x = 1.0;
+        if (span_y < 0.001) span_y = 1.0;
+
+        const vertices = try allocator.alloc(Vertex, needed);
+        errdefer allocator.free(vertices);
+        var n: usize = 0;
+
+        for (plan.points) |p| {
+            const nx = ((p.x - min_x) / span_x) * 1.8 - 0.9;
+            const ny = ((p.y - min_y) / span_y) * 1.8 - 0.9;
+            const nz = clamp01(p.z);
+            appendQuad(
+                vertices,
+                &n,
+                nx,
+                ny,
+                nz,
+                roleSize(p.role),
+                clamp01(p.r),
+                clamp01(p.g),
+                clamp01(p.b),
+                clamp01(p.a),
+            );
+        }
+
+        return vertices;
+    }
+
     pub fn render(self: *WindowsRenderer, width: u32, height: u32) void {
         @setRuntimeSafety(false);
         var rtvs = [_]?*c.ID3D11RenderTargetView{self.rtv};
@@ -397,9 +525,40 @@ const WindowsRenderer = struct {
         self.context.lpVtbl.*.IASetVertexBuffers.?(self.context, 0, 1, &vb, &stride, &offset);
         self.context.lpVtbl.*.VSSetShader.?(self.context, self.vertex_shader, null, 0);
         self.context.lpVtbl.*.PSSetShader.?(self.context, self.pixel_shader, null, 0);
-        self.context.lpVtbl.*.Draw.?(self.context, 3, 0);
+
+        var vertex_count: u32 = 0;
+        const verts = self.buildPlanVertices(std.heap.c_allocator, width, height) catch |err| {
+            log.err("render plan build failed: {}", .{err});
+            _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
+            self.frame_index +%= 1;
+            return;
+        };
+        defer std.heap.c_allocator.free(verts);
+        vertex_count = @as(u32, @intCast(verts.len));
+
+        if (vertex_count > 0) {
+            var mapped: c.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
+            const hr_map = self.context.lpVtbl.*.Map.?(
+                self.context,
+                ptrAs(*c.ID3D11Resource, self.vertex_buffer),
+                0,
+                c.D3D11_MAP_WRITE_DISCARD,
+                0,
+                &mapped,
+            );
+            if (hr_map == c.S_OK and mapped.pData != null) {
+                const src = std.mem.sliceAsBytes(verts);
+                const dst = ptrAs([*]u8, mapped.pData.?)[0..src.len];
+                @memcpy(dst, src);
+                self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*c.ID3D11Resource, self.vertex_buffer), 0);
+                self.context.lpVtbl.*.Draw.?(self.context, vertex_count, 0);
+            } else {
+                log.err("d3d11 map vertex buffer failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_map)))});
+            }
+        }
 
         _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
+        self.frame_index +%= 1;
     }
 
     pub fn resize(self: *WindowsRenderer, width: u32, height: u32) !void {
