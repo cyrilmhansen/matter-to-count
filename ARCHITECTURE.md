@@ -689,7 +689,648 @@ This progression keeps the project honest.
 
 ---
 
-## 17. Final principle
+## 17. Repository layout
+
+The repository should reflect the architectural layers directly.
+It should be easy to find:
+
+* where arithmetic lives;
+* where semantic events are defined;
+* where scene state is built;
+* where rendering begins;
+* where tests and golden references are stored.
+
+A possible initial layout is the following.
+
+```text
+matter-to-count/
+├── build.zig
+├── build.zig.zon
+├── README.md
+├── ARCHITECTURE.md
+├── STORYBOARD.md
+├── AGENT.md
+├── TESTING.md
+├── assets/
+│   ├── materials/
+│   ├── textures/
+│   ├── fonts/
+│   ├── meshes/
+│   ├── audio/
+│   └── themes/
+├── docs/
+│   ├── notes/
+│   ├── references/
+│   └── captures/
+├── src/
+│   ├── main.zig
+│   ├── app/
+│   │   ├── app.zig
+│   │   ├── config.zig
+│   │   ├── time.zig
+│   │   └── modes.zig
+│   ├── math/
+│   │   ├── number.zig
+│   │   ├── base.zig
+│   │   ├── operation.zig
+│   │   ├── addition.zig
+│   │   ├── subtraction.zig
+│   │   ├── multiplication.zig
+│   │   ├── division.zig
+│   │   └── gcd.zig
+│   ├── events/
+│   │   ├── event.zig
+│   │   ├── tape.zig
+│   │   ├── builder.zig
+│   │   └── dump.zig
+│   ├── choreo/
+│   │   ├── clip.zig
+│   │   ├── timeline.zig
+│   │   ├── easing.zig
+│   │   ├── camera_plan.zig
+│   │   └── builder.zig
+│   ├── scene/
+│   │   ├── entity.zig
+│   │   ├── transform.zig
+│   │   ├── material_ref.zig
+│   │   ├── scene_state.zig
+│   │   ├── builder.zig
+│   │   └── debug_dump.zig
+│   ├── render/
+│   │   ├── renderer.zig
+│   │   ├── device.zig
+│   │   ├── shaders.zig
+│   │   ├── mesh_pool.zig
+│   │   ├── texture_pool.zig
+│   │   ├── frame_graph.zig
+│   │   ├── debug_passes.zig
+│   │   └── postprocess.zig
+│   ├── audio/
+│   │   ├── cue.zig
+│   │   ├── event_audio.zig
+│   │   └── mixer.zig
+│   ├── theme/
+│   │   ├── theme.zig
+│   │   ├── decimal_classic.zig
+│   │   ├── binary_neon.zig
+│   │   └── transition_rules.zig
+│   ├── platform/
+│   │   ├── win32/
+│   │   │   ├── window.zig
+│   │   │   ├── d3d11.zig
+│   │   │   └── input.zig
+│   │   └── common/
+│   │       └── platform_time.zig
+│   ├── tools/
+│   │   ├── render_keyframe.zig
+│   │   ├── dump_scene.zig
+│   │   ├── dump_events.zig
+│   │   └── compare_images.zig
+│   └── util/
+│       ├── id.zig
+│       ├── alloc.zig
+│       ├── color.zig
+│       ├── math3d.zig
+│       └── logging.zig
+├── tests/
+│   ├── arithmetic/
+│   ├── events/
+│   ├── scene/
+│   ├── animation/
+│   ├── render/
+│   ├── fixtures/
+│   └── golden/
+│       ├── debug/
+│       ├── beauty/
+│       ├── ids/
+│       └── occupancy/
+└── scripts/
+    ├── capture_keyframes.sh
+    ├── update_goldens.sh
+    └── run_ci_local.sh
+```
+
+### Layout principles
+
+* `src/math/` must remain free of rendering concerns.
+* `src/events/` defines the canonical semantic contract.
+* `src/choreo/` converts semantics into timed behavior.
+* `src/scene/` builds inspectable scene data.
+* `src/render/` consumes scene data and produces images.
+* `src/theme/` contains visual identity choices without redefining arithmetic meaning.
+* `src/tools/` exists to support inspection, captures, and regression testing.
+* `tests/` mirrors the layered testing strategy.
+
+This layout may evolve, but the layer boundaries should remain recognizable.
+
+---
+
+## 18. Core data model
+
+The project should favor explicit, plain-data structures with stable identities and inspectable state.
+The exact Zig syntax may evolve, but the conceptual model should remain close to the following.
+
+## 18.1. Arithmetic model
+
+### Base
+
+A base should be represented explicitly rather than as an unstructured integer passed around everywhere.
+
+Conceptually:
+
+* base value;
+* digit range validation;
+* optional symbolic alphabet for display purposes.
+
+```text
+Base
+- radix: u8
+- alphabet: []const u8
+```
+
+### DigitNumber
+
+A number should be represented structurally.
+
+```text
+DigitNumber
+- sign: enum { positive, negative }
+- base: Base
+- digits: []Digit   // usually most-significant to least-significant or vice versa, but consistently
+```
+
+Recommended invariants:
+
+* every digit must be valid for the base;
+* leading-zero rules should be explicit;
+* internal ordering must be consistent across all operations.
+
+### OperationKind
+
+```text
+OperationKind
+- add
+- subtract
+- multiply_by_base
+- multiply
+- divide
+- gcd
+- sqrt
+- base_transition
+```
+
+### OperationRequest
+
+```text
+OperationRequest
+- kind: OperationKind
+- lhs: DigitNumber
+- rhs: ?DigitNumber
+- options: OperationOptions
+```
+
+`rhs` may be absent for unary operations or derived transitions.
+
+### ArithmeticStepResult
+
+This represents the semantic output of a single arithmetic step before it becomes a public event.
+
+```text
+ArithmeticStepResult
+- intermediate_digits
+- carries_or_borrows
+- affected_columns
+- done: bool
+```
+
+In practice, the implementation may emit events directly, but this intermediate mental model is useful.
+
+---
+
+## 18.2. Event model
+
+The event tape is the most important shared format in the system.
+It should be explicit, compact, and semantically rich.
+
+### EventId
+
+```text
+EventId
+- value: u64
+```
+
+### LogicalTime
+
+Use logical time to order events independently from frame time.
+
+```text
+LogicalTime
+- tick: u32
+- substep: u16
+```
+
+### EventKind
+
+```text
+EventKind
+- column_activate
+- digit_place
+- column_overflow
+- carry_emit
+- carry_receive
+- borrow_request
+- borrow_expand
+- digit_settle
+- shift_start
+- shift_complete
+- partial_product_create
+- partial_product_settle
+- result_finalize
+- base_transition_start
+- base_transition_midpoint
+- base_transition_complete
+```
+
+### EventPayload
+
+The payload can be modeled as a tagged union.
+
+```text
+Event
+- id: EventId
+- time: LogicalTime
+- kind: EventKind
+- subject: SemanticRef
+- payload: EventPayload
+```
+
+### SemanticRef
+
+This identifies the logical target of an event.
+
+```text
+SemanticRef
+- column_index: ?u16
+- row_index: ?u16
+- digit_index: ?u16
+- group_id: ?u32
+```
+
+This should not be overloaded with rendering-only references.
+
+### EventTape
+
+```text
+EventTape
+- operation: OperationRequest
+- events: []Event
+- final_result: DigitNumber
+```
+
+Recommended properties:
+
+* stable ordering;
+* monotonic logical time;
+* debuggable textual dump;
+* deterministic construction.
+
+---
+
+## 18.3. Choreography model
+
+The choreography layer translates semantic events into motion and emphasis.
+
+### ClipId
+
+```text
+ClipId
+- value: u64
+```
+
+### TrackKind
+
+```text
+TrackKind
+- transform
+- emissive
+- visibility
+- camera
+- material_param
+- audio_cue
+```
+
+### AnimationClip
+
+```text
+AnimationClip
+- id: ClipId
+- target: TargetRef
+- track: TrackKind
+- start_time: f32
+- end_time: f32
+- easing: EasingKind
+- value_from
+- value_to
+```
+
+### TargetRef
+
+This identifies what is animated.
+
+```text
+TargetRef
+- entity_id: ?EntityId
+- camera_id: ?CameraId
+- cue_id: ?AudioCueId
+```
+
+### ChoreographyPlan
+
+```text
+ChoreographyPlan
+- duration: f32
+- clips: []AnimationClip
+- camera_plan: CameraPlan
+- cue_plan: []AudioCue
+```
+
+The choreography plan should be reproducible from the event tape and a chosen theme or staging preset.
+
+---
+
+## 18.4. Scene model
+
+The scene model should be a CPU-side data structure that fully describes the visible state at a given time.
+
+### EntityId
+
+```text
+EntityId
+- value: u64
+```
+
+### EntityKind
+
+```text
+EntityKind
+- bead
+- digit_billboard
+- carry_particle
+- borrow_packet
+- rail
+- column_marker
+- result_marker
+- guide
+- light_proxy
+- transition_fragment
+```
+
+### Transform
+
+```text
+Transform
+- position: Vec3
+- rotation: Quat
+- scale: Vec3
+```
+
+### MaterialRef
+
+```text
+MaterialRef
+- theme_material_id: u32
+- variant: u16
+```
+
+### SemanticTag
+
+This links visual objects back to mathematical meaning.
+
+```text
+SemanticTag
+- column_index: ?u16
+- digit_value: ?u8
+- role: SemanticRole
+```
+
+### SceneEntity
+
+```text
+SceneEntity
+- id: EntityId
+- kind: EntityKind
+- transform: Transform
+- material: MaterialRef
+- visible: bool
+- emissive_strength: f32
+- semantic: SemanticTag
+- instance_group: ?u32
+```
+
+### SceneState
+
+```text
+SceneState
+- time: f32
+- entities: []SceneEntity
+- lights: []SceneLight
+- camera: CameraState
+- overlays: []OverlayItem
+- metadata: SceneMetadata
+```
+
+This structure should be inspectable and, where practical, serializable for debug and tests.
+
+---
+
+## 18.5. Camera model
+
+The camera must be treated as authored state, not just free movement.
+
+### CameraMode
+
+```text
+CameraMode
+- orthographic_locked
+- isometric_locked
+- guided_perspective
+- transition_orbit
+- detail_focus
+```
+
+### CameraState
+
+```text
+CameraState
+- mode: CameraMode
+- position: Vec3
+- target: Vec3
+- up: Vec3
+- projection: ProjectionKind
+- fov_or_size: f32
+```
+
+### CameraPlan
+
+```text
+CameraPlan
+- keyframes: []CameraKeyframe
+- readability_constraints: []CameraConstraint
+```
+
+A camera plan should be testable at sampled times.
+
+---
+
+## 18.6. Theme model
+
+Themes should control visual identity while leaving semantics untouched.
+
+### ThemeId
+
+```text
+ThemeId
+- decimal_classic
+- binary_neon
+- hexadecimal_glass
+- octal_steel
+- sexagesimal_bronze
+```
+
+### ThemeDefinition
+
+```text
+ThemeDefinition
+- id: ThemeId
+- material_set
+- light_profile
+- postprocess_profile
+- carry_style
+- borrow_style
+- transition_rules
+```
+
+This allows the same event tape to be staged in different material worlds.
+
+---
+
+## 18.7. Render-facing model
+
+The renderer should consume simplified data derived from `SceneState`.
+
+### InstanceData
+
+```text
+InstanceData
+- world_matrix
+- material_index
+- emissive_strength
+- semantic_color_hint
+```
+
+### RenderFrame
+
+```text
+RenderFrame
+- mesh_batches
+- instance_buffers
+- light_buffer
+- camera_constants
+- debug_flags
+```
+
+This keeps the renderer focused on drawing rather than interpreting semantics.
+
+---
+
+## 19. Data flow example
+
+A concrete example helps clarify the intended layering.
+
+### Example: `17 + 8` in base 10
+
+#### Arithmetic layer
+
+* input numbers are normalized into `DigitNumber` values;
+* the addition is executed column by column;
+* the units column overflows;
+* the final result is `25`.
+
+#### Event tape layer
+
+The operation emits events such as:
+
+* units column activated;
+* digits placed;
+* overflow detected in units;
+* carry emitted;
+* carry received in tens;
+* unit digit settled to `5`;
+* tens digit settled to `2`;
+* result finalized.
+
+#### Choreography layer
+
+The system assigns:
+
+* short timing for digit placement;
+* a curved carry arc;
+* emissive pulse on carry flight;
+* highlight of the receiving tens column;
+* a stable camera during the arithmetic moment.
+
+#### Scene layer
+
+At a chosen time sample, scene state may contain:
+
+* visible bead entities for the operands;
+* one carry particle in transit;
+* one highlighted tens column marker;
+* partially settled result glyphs.
+
+#### Rendering layer
+
+The renderer draws:
+
+* marble-like decimal beads;
+* warm scene lighting;
+* controlled glow on the carry;
+* a readable result line.
+
+This example should remain explainable from any layer back to the arithmetic source.
+
+---
+
+## 20. Implementation priorities
+
+The project should be built so that each milestone strengthens both capability and confidence.
+
+### Priority 1
+
+Make arithmetic and event construction trustworthy.
+
+### Priority 2
+
+Make scene state inspectable and replayable.
+
+### Priority 3
+
+Make key transitions visually readable.
+
+### Priority 4
+
+Make rendering expressive.
+
+### Priority 5
+
+Make transitions between visual worlds elegant.
+
+This order matters.
+A beautiful but semantically fragile prototype is a trap.
+
+---
+
+## 21. Final principle
 
 The architectural goal of **Matter to Count** is not only to make arithmetic look beautiful.
 It is to build a system in which beauty emerges from structure.
