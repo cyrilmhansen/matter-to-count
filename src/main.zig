@@ -85,6 +85,7 @@ test {
     _ = @import("scene/event_scene.zig");
     _ = @import("scene/event_snapshot.zig");
     _ = @import("scene/layout_map.zig");
+    _ = @import("render/render_plan.zig");
     _ = @import("math/number.zig");
     _ = @import("math/addition.zig");
     _ = @import("math/subtraction.zig");
