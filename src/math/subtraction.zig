@@ -20,6 +20,8 @@ pub fn subWithEvents(allocator: std.mem.Allocator, lhs: number.DigitNumber, rhs:
     try rhs.validate();
     if (lhs.base != rhs.base) return error.BaseMismatch;
 
+    // Current product scope is u64-backed fixtures/inputs; use this check to reject
+    // negative results before running the borrow pass.
     const lhs_v = try lhs.toU64();
     const rhs_v = try rhs.toU64();
     if (lhs_v < rhs_v) return error.NegativeResultNotSupported;
@@ -129,4 +131,55 @@ test "sub_decimal_borrow_chain fixture" {
     try ta.expectHasFinalize(res.tape);
     try ta.expectKindCount(res.tape, .borrow_request, 3);
     try ta.expectKindCount(res.tape, .borrow_expand, 3);
+}
+
+test "sub_base60_borrow_chain fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.sub_base60_borrow_chain;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try subWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .borrow_request, 2);
+    try ta.expectKindCount(res.tape, .borrow_expand, 2);
+}
+
+test "cross-base invariant: 8 - 1 keeps numeric meaning with expected borrow profile" {
+    const allocator = std.testing.allocator;
+
+    const Case = struct {
+        base: u8,
+        expected_borrows: usize,
+    };
+    const cases = [_]Case{
+        .{ .base = 60, .expected_borrows = 0 },
+        .{ .base = 16, .expected_borrows = 0 },
+        .{ .base = 10, .expected_borrows = 0 },
+        .{ .base = 8, .expected_borrows = 1 },
+        .{ .base = 2, .expected_borrows = 3 },
+    };
+
+    for (cases) |c| {
+        var lhs = try number.DigitNumber.fromU64(allocator, c.base, 8);
+        defer lhs.deinit(allocator);
+        var rhs = try number.DigitNumber.fromU64(allocator, c.base, 1);
+        defer rhs.deinit(allocator);
+
+        var res = try subWithEvents(allocator, lhs, rhs);
+        defer res.deinit(allocator);
+
+        try std.testing.expectEqual(@as(u64, 7), try res.result.toU64());
+        try ta.expectMonotonic(res.tape);
+        try ta.expectHasFinalize(res.tape);
+        try ta.expectKindCount(res.tape, .borrow_request, c.expected_borrows);
+        try ta.expectKindCount(res.tape, .borrow_expand, c.expected_borrows);
+    }
 }

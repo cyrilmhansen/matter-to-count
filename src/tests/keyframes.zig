@@ -5,6 +5,7 @@ const number = @import("../math/number.zig");
 const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
 const shift = @import("../math/shift.zig");
+const multiplication = @import("../math/multiplication.zig");
 const fixtures = @import("fixtures.zig");
 
 pub const SceneCase = enum {
@@ -12,6 +13,8 @@ pub const SceneCase = enum {
     add_cascade_carry,
     sub_borrow_chain,
     shift_decimal_left,
+    mul_base60_mid,
+    mul_base60_final,
 };
 
 pub const CanonicalKeyframe = struct {
@@ -53,6 +56,18 @@ pub const canonical = [_]CanonicalKeyframe{
         .case_id = .add_cascade_carry,
         .sample = .{ .tick = 4, .phase = 1.0 },
     },
+    .{
+        .id = "mul_mid",
+        .scene_kind = .mul,
+        .case_id = .mul_base60_mid,
+        .sample = .{ .tick = 2, .phase = 0.5 },
+    },
+    .{
+        .id = "mul_final",
+        .scene_kind = .mul,
+        .case_id = .mul_base60_final,
+        .sample = .{ .tick = 4, .phase = 1.0 },
+    },
 };
 
 pub const baselines = @import("keyframes_baselines.zig").baselines;
@@ -63,6 +78,8 @@ pub fn buildSceneForKeyframe(allocator: std.mem.Allocator, kf: CanonicalKeyframe
         .add_cascade_carry => try buildAddScene(allocator, fixtures.add_decimal_cascade_carry, kf.sample),
         .sub_borrow_chain => try buildSubScene(allocator, fixtures.sub_decimal_borrow_chain, kf.sample),
         .shift_decimal_left => try buildShiftScene(allocator, fixtures.shift_decimal_left_once, kf.sample),
+        .mul_base60_mid => try buildMulScene(allocator, fixtures.mul_base60_carry, kf.sample),
+        .mul_base60_final => try buildMulScene(allocator, fixtures.mul_base60_carry, kf.sample),
     };
 }
 
@@ -102,6 +119,20 @@ fn buildShiftScene(
     var input = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer input.deinit(allocator);
     var res = try shift.multiplyByBaseWithEvents(allocator, input);
+    defer res.deinit(allocator);
+    return event_scene.buildSceneAtTime(allocator, res.tape, sample);
+}
+
+fn buildMulScene(
+    allocator: std.mem.Allocator,
+    fx: fixtures.Fixture,
+    sample: event_scene.TimeSample,
+) !event_scene.ArithmeticSceneState {
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
     return event_scene.buildSceneAtTime(allocator, res.tape, sample);
 }

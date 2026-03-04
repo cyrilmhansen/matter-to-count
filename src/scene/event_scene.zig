@@ -5,6 +5,7 @@ const number = @import("../math/number.zig");
 const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
 const shift = @import("../math/shift.zig");
+const multiplication = @import("../math/multiplication.zig");
 const fixtures = @import("../tests/fixtures.zig");
 
 pub const EmissiveClass = enum {
@@ -19,6 +20,7 @@ pub const EntityRole = enum {
     carry_packet,
     borrow_packet,
     shift_packet,
+    partial_row_marker,
 };
 
 pub const Entity = struct {
@@ -127,10 +129,13 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
     defer allocator.free(result_values);
     const active_flags = try allocator.alloc(bool, col_count);
     defer allocator.free(active_flags);
+    const partial_row_active = try allocator.alloc(bool, col_count);
+    defer allocator.free(partial_row_active);
 
     @memset(source_values, -1);
     @memset(result_values, -1);
     @memset(active_flags, false);
+    @memset(partial_row_active, false);
 
     var entities = try std.ArrayList(Entity).initCapacity(allocator, col_count * 2 + 4);
     defer entities.deinit(allocator);
@@ -168,9 +173,29 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
             switch (e.kind) {
                 .digit_place => source_values[e.column] = @as(i16, @intCast(e.value)),
                 .digit_settle => result_values[e.column] = @as(i16, @intCast(e.value)),
+                .partial_row_start => partial_row_active[e.column] = true,
+                .partial_row_complete => partial_row_active[e.column] = false,
                 .result_finalize => is_finalized = true,
                 else => {},
             }
+        }
+    }
+
+    var row: usize = 0;
+    while (row < col_count) : (row += 1) {
+        if (partial_row_active[row]) {
+            try entities.append(allocator, .{
+                .id = next_id,
+                .role = .partial_row_marker,
+                .column = @as(u16, @intCast(row)),
+                .value = 0,
+                .visible = true,
+                .in_transit = false,
+                .x = @as(f32, @floatFromInt(row)),
+                .y = 1.5,
+                .emissive = .highlight,
+            });
+            next_id += 1;
         }
     }
 
@@ -290,6 +315,68 @@ test "scene mapping: shift left exposes shift packet in transit" {
     try std.testing.expectEqual(@as(usize, 1), countRole(scene, .shift_packet));
     try std.testing.expect(hasActiveColumn(scene, 0));
     try std.testing.expect(!scene.is_finalized);
+}
+
+test "scene mapping: carry destination activates only on destination tick events" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var transfer = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer transfer.deinit(allocator);
+    try std.testing.expect(hasActiveColumn(transfer, 0));
+    try std.testing.expect(!hasActiveColumn(transfer, 1));
+
+    var receive = try buildSceneAtTime(allocator, res.tape, .{ .tick = 1, .phase = 0.0 });
+    defer receive.deinit(allocator);
+    try std.testing.expect(hasActiveColumn(receive, 1));
+}
+
+test "scene mapping: multiplication transfer sample exposes carry packet and active column" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer scene.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), countRole(scene, .carry_packet));
+    try std.testing.expectEqual(@as(usize, 1), countRole(scene, .partial_row_marker));
+    try std.testing.expect(hasActiveColumn(scene, 0));
+    try std.testing.expect(!scene.is_finalized);
+}
+
+test "scene mapping: multiplication settle sample has no transit packets and is finalized" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 4, .phase = 1.0 });
+    defer scene.deinit(allocator);
+
+    try std.testing.expect(scene.is_finalized);
+    try std.testing.expectEqual(@as(usize, 0), countRole(scene, .carry_packet));
+    try std.testing.expectEqual(@as(usize, 0), countRole(scene, .borrow_packet));
+    try std.testing.expectEqual(@as(usize, 0), countRole(scene, .shift_packet));
+    try std.testing.expectEqual(@as(usize, 0), countRole(scene, .partial_row_marker));
 }
 
 test "scene mapping: finalize appears at final sample" {

@@ -14,7 +14,8 @@ pub const DrawRole = enum(u8) {
     carry_packet = 2,
     borrow_packet = 3,
     shift_packet = 4,
-    active_marker = 5,
+    partial_row_marker = 5,
+    active_marker = 6,
 };
 
 pub const DrawPoint = struct {
@@ -43,6 +44,7 @@ fn roleFromEntity(role: es.EntityRole) DrawRole {
         .carry_packet => .carry_packet,
         .borrow_packet => .borrow_packet,
         .shift_packet => .shift_packet,
+        .partial_row_marker => .partial_row_marker,
     };
 }
 
@@ -53,6 +55,7 @@ fn applySemanticColor(p: *DrawPoint, role: DrawRole, emissive: es.EmissiveClass)
         .carry_packet => [4]f32{ 1.00, 0.35, 0.20, 1.00 },
         .borrow_packet => [4]f32{ 1.00, 0.80, 0.20, 1.00 },
         .shift_packet => [4]f32{ 0.70, 0.30, 1.00, 1.00 },
+        .partial_row_marker => [4]f32{ 1.00, 0.60, 0.90, 1.00 },
         .active_marker => [4]f32{ 1.00, 1.00, 0.35, 1.00 },
     };
 

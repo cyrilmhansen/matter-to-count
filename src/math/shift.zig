@@ -107,3 +107,51 @@ test "shift_binary_left_once fixture" {
     try ta.expectKindCount(res.tape, .shift_start, 4);
     try ta.expectKindCount(res.tape, .shift_complete, 4);
 }
+
+test "shift_base60_left_once fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.shift_base60_left_once;
+
+    var n = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer n.deinit(allocator);
+
+    var res = try multiplyByBaseWithEvents(allocator, n);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .shift_start, 2);
+    try ta.expectKindCount(res.tape, .shift_complete, 2);
+}
+
+test "cross-base invariant: multiply by base keeps numeric meaning and per-digit shift events" {
+    const allocator = std.testing.allocator;
+
+    const Case = struct {
+        base: u8,
+    };
+    const cases = [_]Case{
+        .{ .base = 60 },
+        .{ .base = 16 },
+        .{ .base = 10 },
+        .{ .base = 2 },
+        .{ .base = 8 },
+    };
+
+    const input_value: u64 = 7;
+    for (cases) |c| {
+        var n = try number.DigitNumber.fromU64(allocator, c.base, input_value);
+        defer n.deinit(allocator);
+
+        const expected_shift_events = n.digits.len;
+        var res = try multiplyByBaseWithEvents(allocator, n);
+        defer res.deinit(allocator);
+
+        try std.testing.expectEqual(input_value * c.base, try res.result.toU64());
+        try ta.expectMonotonic(res.tape);
+        try ta.expectHasFinalize(res.tape);
+        try ta.expectKindCount(res.tape, .shift_start, expected_shift_events);
+        try ta.expectKindCount(res.tape, .shift_complete, expected_shift_events);
+    }
+}

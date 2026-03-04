@@ -491,6 +491,7 @@ const WindowsRenderer = struct {
         return switch (role) {
             .source_digit, .result_digit => 0.070,
             .carry_packet, .borrow_packet, .shift_packet => 0.090,
+            .partial_row_marker => 0.060,
             .active_marker => 0.050,
         };
     }

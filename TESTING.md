@@ -118,6 +118,11 @@ For each operation, test:
 - edge conditions per base;
 - correctness across bases when applicable.
 
+### Numeric scope (current)
+- Arithmetic fixtures and operation tests are currently validated for values representable in `u64`.
+- This limit is intentional for the current milestone to keep arithmetic/event/scene iteration fast and deterministic.
+- Expanding beyond `u64` is deferred until product needs require larger ranges.
+
 ### Examples
 - `17 + 8` in base 10 produces `25` with one carry;
 - `199 + 7` in base 10 produces `206` with cascade carry;

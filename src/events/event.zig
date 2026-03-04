@@ -12,6 +12,8 @@ pub const EventKind = enum {
     borrow_expand,
     shift_start,
     shift_complete,
+    partial_row_start,
+    partial_row_complete,
     digit_settle,
     result_finalize,
 };

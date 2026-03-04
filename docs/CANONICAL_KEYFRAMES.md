@@ -11,6 +11,8 @@ Current canonical set:
 2. `sub_mid` (`sub`, tick `1`, phase `0.4`)
 3. `shift_mid` (`shift`, tick `0`, phase `0.5`)
 4. `add_final` (`add`, tick `4`, phase `1.0`)
+5. `mul_mid` (`mul`, tick `2`, phase `0.5`)
+6. `mul_final` (`mul`, tick `4`, phase `1.0`)
 
 ## Rebaseline command
 

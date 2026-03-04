@@ -22,6 +22,7 @@ fn roleDepth(role: es.EntityRole) f32 {
         .carry_packet => 0.04,
         .borrow_packet => 0.06,
         .shift_packet => 0.08,
+        .partial_row_marker => 0.03,
     };
 }
 
@@ -30,6 +31,7 @@ fn roleYOffset(role: es.EntityRole, cfg: LayoutConfig) f32 {
         .source_digit => 0.0,
         .result_digit => cfg.row_spacing,
         .carry_packet, .borrow_packet, .shift_packet => cfg.row_spacing * 0.5,
+        .partial_row_marker => cfg.row_spacing * 1.4,
     };
 }
 

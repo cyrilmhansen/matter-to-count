@@ -3,6 +3,7 @@ const number = @import("../math/number.zig");
 const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
 const shift = @import("../math/shift.zig");
+const multiplication = @import("../math/multiplication.zig");
 const fixtures = @import("../tests/fixtures.zig");
 const event_scene = @import("../scene/event_scene.zig");
 const layout_map = @import("../scene/layout_map.zig");
@@ -12,11 +13,13 @@ pub const SceneKind = enum {
     add,
     sub,
     shift,
+    mul,
 
     pub fn parse(raw: []const u8) ?SceneKind {
         if (std.mem.eql(u8, raw, "add")) return .add;
         if (std.mem.eql(u8, raw, "sub")) return .sub;
         if (std.mem.eql(u8, raw, "shift")) return .shift;
+        if (std.mem.eql(u8, raw, "mul")) return .mul;
         return null;
     }
 
@@ -25,6 +28,7 @@ pub const SceneKind = enum {
             .add => "ADD",
             .sub => "SUB",
             .shift => "SHIFT",
+            .mul => "MUL",
         };
     }
 };
@@ -65,6 +69,7 @@ pub const Controller = struct {
             .add => try buildAddScene(allocator, tick, phase),
             .sub => try buildSubScene(allocator, tick, phase),
             .shift => try buildShiftScene(allocator, tick, phase),
+            .mul => try buildMulScene(allocator, tick, phase),
         };
         defer scene.deinit(allocator);
 
@@ -106,6 +111,17 @@ fn buildShiftScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_s
     var input = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer input.deinit(allocator);
     var res = try shift.multiplyByBaseWithEvents(allocator, input);
+    defer res.deinit(allocator);
+    return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
+}
+
+fn buildMulScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_scene.ArithmeticSceneState {
+    const fx = fixtures.mul_base60_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
     return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
 }

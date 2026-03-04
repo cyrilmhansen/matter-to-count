@@ -137,3 +137,120 @@ test "199 + 7 base10 -> 206 with cascade carries" {
     try ta.expectHasFinalize(res.tape);
     try ta.expectKindCount(res.tape, .carry_emit, 2);
 }
+
+test "base60 single carry fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_base60_single_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 1);
+}
+
+test "base60 cascade carry fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_base60_cascade_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 2);
+}
+
+test "base16 single carry fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_hex_single_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 1);
+}
+
+test "base2 cascade carry fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_binary_cascade_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 3);
+}
+
+test "base8 single carry fixture" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_octal_single_carry;
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+
+    var res = try addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    try std.testing.expectEqual(fx.expected, try res.result.toU64());
+    try ta.expectMonotonic(res.tape);
+    try ta.expectHasFinalize(res.tape);
+    try ta.expectKindCount(res.tape, .carry_emit, 2);
+}
+
+test "cross-base invariant: 7 + 1 keeps numeric meaning with expected carry profile" {
+    const allocator = std.testing.allocator;
+
+    const Case = struct {
+        base: u8,
+        expected_carries: usize,
+    };
+    const cases = [_]Case{
+        .{ .base = 60, .expected_carries = 0 },
+        .{ .base = 16, .expected_carries = 0 },
+        .{ .base = 10, .expected_carries = 0 },
+        .{ .base = 8, .expected_carries = 1 },
+        .{ .base = 2, .expected_carries = 3 },
+    };
+
+    for (cases) |c| {
+        var lhs = try number.DigitNumber.fromU64(allocator, c.base, 7);
+        defer lhs.deinit(allocator);
+        var rhs = try number.DigitNumber.fromU64(allocator, c.base, 1);
+        defer rhs.deinit(allocator);
+
+        var res = try addWithEvents(allocator, lhs, rhs);
+        defer res.deinit(allocator);
+
+        try std.testing.expectEqual(@as(u64, 8), try res.result.toU64());
+        try ta.expectMonotonic(res.tape);
+        try ta.expectHasFinalize(res.tape);
+        try ta.expectKindCount(res.tape, .carry_emit, c.expected_carries);
+        try ta.expectKindCount(res.tape, .carry_receive, c.expected_carries);
+    }
+}
