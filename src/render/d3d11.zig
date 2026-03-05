@@ -28,6 +28,7 @@ const StubRenderer = struct {
 const WindowsRenderer = struct {
     const Vertex = extern struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
     const MaxDynamicVertices: u32 = 8192;
+    const MaxRaymarchInstances: usize = 64;
     const LegendZ: f32 = 0.95;
     const LegendCellW: f32 = 0.010;
     const LegendCellH: f32 = 0.018;
@@ -46,6 +47,7 @@ const WindowsRenderer = struct {
     pixel_shader: *c.ID3D11PixelShader,
     input_layout: *c.ID3D11InputLayout,
     vertex_buffer: *c.ID3D11Buffer,
+    scene_cb: *c.ID3D11Buffer,
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
@@ -134,6 +136,7 @@ const WindowsRenderer = struct {
             return null;
         };
         const capture_texture = createCaptureTexture(device.?, desc.BufferDesc.Width, desc.BufferDesc.Height) catch |err| {
+            _ = tri.scene_cb.lpVtbl.*.Release.?(tri.scene_cb);
             _ = tri.vertex_buffer.lpVtbl.*.Release.?(tri.vertex_buffer);
             _ = tri.input_layout.lpVtbl.*.Release.?(tri.input_layout);
             _ = tri.pixel_shader.lpVtbl.*.Release.?(tri.pixel_shader);
@@ -162,6 +165,7 @@ const WindowsRenderer = struct {
             .pixel_shader = tri.pixel_shader,
             .input_layout = tri.input_layout,
             .vertex_buffer = tri.vertex_buffer,
+            .scene_cb = tri.scene_cb,
         };
     }
 
@@ -201,6 +205,17 @@ const WindowsRenderer = struct {
         pixel_shader: *c.ID3D11PixelShader,
         input_layout: *c.ID3D11InputLayout,
         vertex_buffer: *c.ID3D11Buffer,
+        scene_cb: *c.ID3D11Buffer,
+    };
+
+    const SceneCB = extern struct {
+        cam: [4]f32, // yaw_rad, pitch_rad, perspective, aspect
+        light: [4]f32,
+        screen: [4]f32, // width, height, _, _
+        meta: [4]f32, // inst_count, _, _, _
+        inst_data0: [MaxRaymarchInstances][4]f32, // pos.xyz, scale
+        inst_data1: [MaxRaymarchInstances][4]f32, // yaw_rad, shape_id, _, _
+        inst_col: [MaxRaymarchInstances][4]f32, // rgba
     };
 
     fn compileShader(source: []const u8, entry: []const u8, target: []const u8) !*c.ID3DBlob {
@@ -237,11 +252,150 @@ const WindowsRenderer = struct {
         const vs_src =
             \\struct VSIn { float3 pos : POSITION; float4 col : COLOR; };
             \\struct VSOut { float4 pos : SV_POSITION; float4 col : COLOR; };
-            \\VSOut main(VSIn i) { VSOut o; o.pos = float4(i.pos, 1.0); o.col = i.col; return o; }
+            \\VSOut main(VSIn i) {
+            \\  VSOut o;
+            \\  o.pos = float4(i.pos, 1.0);
+            \\  o.col = i.col;
+            \\  return o;
+            \\}
         ;
         const ps_src =
+            \\// Raymarch SDF primitives inspired by Inigo Quilez references.
+            \\// Requested source: https://www.shadertoy.com/view/Xds3zN
+            \\cbuffer SceneCB : register(b0) {
+            \\  float4 cam;
+            \\  float4 light_dir;
+            \\  float4 screen;
+            \\  float4 meta;
+            \\  float4 inst_data0[64];
+            \\  float4 inst_data1[64];
+            \\  float4 inst_col[64];
+            \\};
             \\struct PSIn { float4 pos : SV_POSITION; float4 col : COLOR; };
-            \\float4 main(PSIn i) : SV_TARGET { return i.col; }
+            \\struct Hit { float d; float4 col; };
+            \\float sdSphere(float3 p, float s) { return length(p) - s; }
+            \\float sdBox(float3 p, float3 b) {
+            \\  float3 q = abs(p) - b;
+            \\  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+            \\}
+            \\float sdTorus(float3 p, float2 t) {
+            \\  float2 q = float2(length(p.xz) - t.x, p.y);
+            \\  return length(q) - t.y;
+            \\}
+            \\float sdCapsuleY(float3 p, float h, float r) {
+            \\  p.y -= clamp(p.y, -h, h);
+            \\  return length(p) - r;
+            \\}
+            \\float opU(float a, float b) { return min(a, b); }
+            \\float3 rotY(float3 p, float a) {
+            \\  float c = cos(a), s = sin(a);
+            \\  return float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+            \\}
+            \\Hit mapScene(float3 p) {
+            \\  Hit h; h.d = 1e9; h.col = float4(0,0,0,1);
+            \\  [loop]
+            \\  for (uint i = 0; i < (uint)meta.x; ++i) {
+            \\    float3 c = inst_data0[i].xyz;
+            \\    float scale = inst_data0[i].w;
+            \\    float yaw = inst_data1[i].x;
+            \\    float shape = inst_data1[i].y;
+            \\    float3 q = rotY(p - c, yaw);
+            \\    float d = 1e9;
+            \\    if (shape < 0.5) {
+            \\      float core = sdSphere(q, 0.23 * scale);
+            \\      float ring = sdTorus(q + float3(0.0, 0.04 * scale, 0.0), float2(0.26 * scale, 0.04 * scale));
+            \\      d = opU(core, ring);
+            \\    } else if (shape < 1.5) {
+            \\      float stem = sdCapsuleY(q, 0.24 * scale, 0.10 * scale);
+            \\      float crown = sdBox(q - float3(0.0, 0.30 * scale, 0.0), float3(0.18, 0.06, 0.18) * scale);
+            \\      d = opU(stem, crown);
+            \\    } else if (shape < 2.5) {
+            \\      float block = sdBox(q, float3(0.20, 0.20, 0.20) * scale);
+            \\      float pearl = sdSphere(q + float3(0.0, 0.28 * scale, 0.0), 0.10 * scale);
+            \\      d = opU(block, pearl);
+            \\    } else if (shape < 3.5) {
+            \\      float ring = sdTorus(q, float2(0.24 * scale, 0.06 * scale));
+            \\      float bar = sdBox(q, float3(0.32, 0.02, 0.06) * scale);
+            \\      d = opU(ring, bar);
+            \\    } else {
+            \\      d = sdSphere(q, 0.14 * scale);
+            \\    }
+            \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; }
+            \\  }
+            \\  float ground = p.y + 0.72;
+            \\  if (ground < h.d) {
+            \\    h.d = ground;
+            \\    h.col = float4(0.16, 0.15, 0.14, 1.0);
+            \\  }
+            \\  return h;
+            \\}
+            \\float3 estimateNormal(float3 p) {
+            \\  const float e = 0.0012;
+            \\  float dx = mapScene(p + float3(e,0,0)).d - mapScene(p - float3(e,0,0)).d;
+            \\  float dy = mapScene(p + float3(0,e,0)).d - mapScene(p - float3(0,e,0)).d;
+            \\  float dz = mapScene(p + float3(0,0,e)).d - mapScene(p - float3(0,0,e)).d;
+            \\  return normalize(float3(dx,dy,dz));
+            \\}
+            \\float calcAO(float3 p, float3 n) {
+            \\  float occ = 0.0;
+            \\  float sca = 1.0;
+            \\  [unroll]
+            \\  for (int i = 1; i <= 4; ++i) {
+            \\    float h = 0.03 * i;
+            \\    float d = mapScene(p + n * h).d;
+            \\    occ += (h - d) * sca;
+            \\    sca *= 0.65;
+            \\  }
+            \\  return saturate(1.0 - occ * 2.0);
+            \\}
+            \\float softShadow(float3 ro, float3 rd, float mint, float maxt, float k) {
+            \\  float res = 1.0;
+            \\  float t = mint;
+            \\  [loop]
+            \\  for (int i = 0; i < 32; ++i) {
+            \\    float h = mapScene(ro + rd * t).d;
+            \\    if (h < 0.001) return 0.0;
+            \\    res = min(res, k * h / t);
+            \\    t += clamp(h, 0.01, 0.25);
+            \\    if (t > maxt) break;
+            \\  }
+            \\  return saturate(res);
+            \\}
+            \\float4 main(PSIn i) : SV_TARGET {
+            \\  float2 uv = (i.pos.xy / screen.xy) * 2.0 - 1.0;
+            \\  uv.x *= cam.w;
+            \\  float yaw = cam.x;
+            \\  float pitch = cam.y;
+            \\  float cy = cos(yaw), sy = sin(yaw), cp = cos(pitch), sp = sin(pitch);
+            \\  float3 fwd = normalize(float3(cp * sy, sp, cp * cy));
+            \\  float3 right = normalize(cross(float3(0,1,0), fwd));
+            \\  float3 up = normalize(cross(fwd, right));
+            \\  float scene_extent = max(screen.z, 0.5);
+            \\  float3 ro = -fwd * (scene_extent * (1.2 + (1.0 - cam.z) * 0.6));
+            \\  float3 rd = normalize(fwd + uv.x * right + uv.y * up);
+            \\  float t = 0.0;
+            \\  Hit h;
+            \\  [loop]
+            \\  for (int s = 0; s < 96; ++s) {
+            \\    float3 p = ro + rd * t;
+            \\    h = mapScene(p);
+            \\    if (h.d < 0.001) {
+            \\      float3 n = estimateNormal(p);
+            \\      float3 ldir = normalize(light_dir.xyz);
+            \\      float diff = max(dot(n, ldir), 0.0);
+            \\      float sh = softShadow(p + n * 0.003, ldir, 0.02, 8.0, 8.0);
+            \\      float ao = calcAO(p, n);
+            \\      float rim = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
+            \\      float3 bounce = float3(0.08, 0.07, 0.06) * max(0.0, -n.y) * 0.5;
+            \\      float3 lit = h.col.rgb * (0.10 + diff * sh * 0.95) * ao + rim * 0.12 + bounce;
+            \\      return float4(saturate(lit), 1.0);
+            \\    }
+            \\    t += h.d;
+            \\    if (t > scene_extent * 10.0 + 20.0) break;
+            \\  }
+            \\  float v = 0.4 + 0.6 * (1.0 - uv.y * 0.5);
+            \\  return float4(0.04 * v, 0.05 * v, 0.08 * v, 1.0);
+            \\}
         ;
 
         const vs_blob = try compileShader(vs_src, "main\x00", "vs_4_0\x00");
@@ -329,11 +483,27 @@ const WindowsRenderer = struct {
             return error.D3D11CreateVertexBufferFailed;
         }
 
+        var cb_desc: c.D3D11_BUFFER_DESC = std.mem.zeroes(c.D3D11_BUFFER_DESC);
+        cb_desc.ByteWidth = @sizeOf(SceneCB);
+        cb_desc.Usage = c.D3D11_USAGE_DYNAMIC;
+        cb_desc.BindFlags = c.D3D11_BIND_CONSTANT_BUFFER;
+        cb_desc.CPUAccessFlags = c.D3D11_CPU_ACCESS_WRITE;
+        var scene_cb: ?*c.ID3D11Buffer = null;
+        const hr_cb = device.lpVtbl.*.CreateBuffer.?(device, &cb_desc, null, &scene_cb);
+        if (hr_cb != c.S_OK or scene_cb == null) {
+            _ = vb.?.lpVtbl.*.Release.?(vb.?);
+            _ = layout.?.lpVtbl.*.Release.?(layout.?);
+            _ = ps.?.lpVtbl.*.Release.?(ps.?);
+            _ = vs.?.lpVtbl.*.Release.?(vs.?);
+            return error.D3D11CreateConstantBufferFailed;
+        }
+
         return .{
             .vertex_shader = vs.?,
             .pixel_shader = ps.?,
             .input_layout = layout.?,
             .vertex_buffer = vb.?,
+            .scene_cb = scene_cb.?,
         };
     }
 
@@ -496,6 +666,66 @@ const WindowsRenderer = struct {
         };
     }
 
+    fn shapeIdForRole(role: render_plan.DrawRole) f32 {
+        return switch (role) {
+            .carry_packet, .borrow_packet, .shift_packet => 0.0, // sphere
+            .source_digit => 1.0,
+            .result_digit => 2.0,
+            .partial_row_marker => 3.0,
+            .active_marker => 4.0,
+        };
+    }
+
+    fn fillSceneCB(plan: render_plan.RenderPlan, width: u32, height: u32) SceneCB {
+        var cb = std.mem.zeroes(SceneCB);
+
+        const yaw = plan.camera.yaw_deg * std.math.pi / 180.0;
+        const pitch = plan.camera.pitch_deg * std.math.pi / 180.0;
+        const aspect = @as(f32, @floatFromInt(width)) / @max(1.0, @as(f32, @floatFromInt(height)));
+        cb.cam = .{ yaw, pitch, plan.camera.perspective, aspect };
+        cb.light = .{ 0.45, 0.85, -0.25, 0.0 };
+        cb.screen = .{ @as(f32, @floatFromInt(width)), @as(f32, @floatFromInt(height)), 1.0, 0.0 };
+
+        const count: usize = @min(plan.points.len, MaxRaymarchInstances);
+        cb.meta[0] = @as(f32, @floatFromInt(count));
+
+        var cx: f32 = 0.0;
+        var cy: f32 = 0.0;
+        var cz: f32 = 0.0;
+        if (count > 0) {
+            for (plan.points[0..count]) |p| {
+                cx += p.x;
+                cy += p.y;
+                cz += p.z;
+            }
+            const inv = 1.0 / @as(f32, @floatFromInt(count));
+            cx *= inv;
+            cy *= inv;
+            cz *= inv;
+        }
+
+        var extent: f32 = 1.0;
+        if (count > 0) {
+            extent = 0.0;
+            for (plan.points[0..count]) |p| {
+                const dx = p.x - cx;
+                const dy = p.y - cy;
+                const dz = p.z - cz;
+                const r = @sqrt(dx * dx + dy * dy + dz * dz) + p.scale * 0.25;
+                extent = @max(extent, r);
+            }
+            extent = @max(extent, 0.6);
+        }
+        cb.screen[2] = extent;
+
+        for (plan.points[0..count], 0..) |p, i| {
+            cb.inst_data0[i] = .{ p.x - cx, p.y - cy, p.z - cz, p.scale };
+            cb.inst_data1[i] = .{ p.yaw_deg * std.math.pi / 180.0, shapeIdForRole(p.role), 0.0, 0.0 };
+            cb.inst_col[i] = .{ p.r, p.g, p.b, p.a };
+        }
+        return cb;
+    }
+
     fn appendQuad(
         verts: []Vertex,
         base: *usize,
@@ -523,6 +753,64 @@ const WindowsRenderer = struct {
         base.* += 6;
     }
 
+    fn appendTriangle(
+        verts: []Vertex,
+        base: *usize,
+        cx: f32,
+        cy: f32,
+        z: f32,
+        half_size: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    ) void {
+        const x0 = cx;
+        const y0 = cy + half_size;
+        const x1 = cx - half_size;
+        const y1 = cy - half_size;
+        const x2 = cx + half_size;
+        const y2 = cy - half_size;
+        verts[base.* + 0] = .{ .x = x0, .y = y0, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 1] = .{ .x = x1, .y = y1, .z = z, .r = r, .g = g, .b = b, .a = a };
+        verts[base.* + 2] = .{ .x = x2, .y = y2, .z = z, .r = r, .g = g, .b = b, .a = a };
+        base.* += 3;
+    }
+
+    fn appendFullscreenTriangleNdc(verts: []Vertex, base: *usize) void {
+        verts[base.* + 0] = .{ .x = -1.0, .y = -1.0, .z = 0.0, .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 };
+        // Keep clockwise winding (D3D11 default front-face) so it is not culled.
+        verts[base.* + 1] = .{ .x = -1.0, .y = 3.0, .z = 0.0, .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 };
+        verts[base.* + 2] = .{ .x = 3.0, .y = -1.0, .z = 0.0, .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 };
+        base.* += 3;
+    }
+
+    const Projected = struct {
+        x: f32,
+        y: f32,
+        z: f32,
+    };
+
+    fn projectPoint(world_x: f32, world_y: f32, world_z: f32, yaw_deg: f32, pitch_deg: f32, perspective: f32) Projected {
+        const yaw = yaw_deg * std.math.pi / 180.0;
+        const pitch = pitch_deg * std.math.pi / 180.0;
+        const yaw_c = @cos(yaw);
+        const yaw_s = @sin(yaw);
+        const pitch_c = @cos(pitch);
+        const pitch_s = @sin(pitch);
+
+        const xz_x = world_x * yaw_c - world_z * yaw_s;
+        const xz_z = world_x * yaw_s + world_z * yaw_c;
+        const yz_y = world_y * pitch_c - xz_z * pitch_s;
+        const yz_z = world_y * pitch_s + xz_z * pitch_c;
+        const persp = 1.0 / (1.0 + @max(0.0, yz_z) * perspective);
+        return .{
+            .x = xz_x * persp,
+            .y = yz_y * persp,
+            .z = clamp01(world_z * 0.8 + yz_z * 0.2),
+        };
+    }
+
     fn buildPlanVertices(
         self: *WindowsRenderer,
         allocator: std.mem.Allocator,
@@ -537,18 +825,37 @@ const WindowsRenderer = struct {
 
         if (plan.points.len == 0 and legend_text.len == 0) return allocator.alloc(Vertex, 0);
         const legend_budget: usize = legend_text.len * 15 * 6;
-        const needed: usize = plan.points.len * 6 + legend_budget;
+        var geom_budget: usize = 0;
+        for (plan.points) |p| {
+            geom_budget += switch (p.role) {
+                .carry_packet, .borrow_packet, .shift_packet, .partial_row_marker => 3,
+                else => 6,
+            };
+        }
+        const needed: usize = geom_budget + legend_budget + 3;
         if (needed > MaxDynamicVertices) return error.RenderPlanTooLarge;
 
-        var min_x = plan.points[0].x;
-        var max_x = plan.points[0].x;
-        var min_y = plan.points[0].y;
-        var max_y = plan.points[0].y;
-        for (plan.points[1..]) |p| {
-            min_x = @min(min_x, p.x);
-            max_x = @max(max_x, p.x);
-            min_y = @min(min_y, p.y);
-            max_y = @max(max_y, p.y);
+        const yaw_deg = plan.camera.yaw_deg;
+        const pitch_deg = plan.camera.pitch_deg;
+        const perspective = plan.camera.perspective;
+
+        var min_x: f32 = -1.0;
+        var max_x: f32 = 1.0;
+        var min_y: f32 = -1.0;
+        var max_y: f32 = 1.0;
+        if (plan.points.len > 0) {
+            const p0 = projectPoint(plan.points[0].x, plan.points[0].y, plan.points[0].z, yaw_deg, pitch_deg, perspective);
+            min_x = p0.x;
+            max_x = p0.x;
+            min_y = p0.y;
+            max_y = p0.y;
+            for (plan.points[1..]) |p| {
+                const pp = projectPoint(p.x, p.y, p.z, yaw_deg, pitch_deg, perspective);
+                min_x = @min(min_x, pp.x);
+                max_x = @max(max_x, pp.x);
+                min_y = @min(min_y, pp.y);
+                max_y = @max(max_y, pp.y);
+            }
         }
         const pad = 0.25;
         min_x -= pad;
@@ -565,23 +872,27 @@ const WindowsRenderer = struct {
         var n: usize = 0;
 
         for (plan.points) |p| {
-            const nx = ((p.x - min_x) / span_x) * 1.8 - 0.9;
-            const ny = ((p.y - min_y) / span_y) * 1.8 - 0.9;
-            const nz = clamp01(p.z);
-            appendQuad(
-                vertices,
-                &n,
-                nx,
-                ny,
-                nz,
-                roleSize(p.role),
-                clamp01(p.r),
-                clamp01(p.g),
-                clamp01(p.b),
-                clamp01(p.a),
-            );
+            const pp = projectPoint(p.x, p.y, p.z, yaw_deg, pitch_deg, perspective);
+            const nx = ((pp.x - min_x) / span_x) * 1.8 - 0.9;
+            const ny = ((pp.y - min_y) / span_y) * 1.8 - 0.9;
+            const nz = clamp01(pp.z);
+            const hs = roleSize(p.role) * @max(0.6, @min(1.8, p.scale));
+            const r = clamp01(p.r);
+            const g = clamp01(p.g);
+            const b = clamp01(p.b);
+            const a = clamp01(p.a);
+            switch (p.role) {
+                .carry_packet, .borrow_packet, .shift_packet, .partial_row_marker => {
+                    const yaw = p.yaw_deg * std.math.pi / 180.0;
+                    const rx = nx + @cos(yaw) * hs * 0.15;
+                    const ry = ny + @sin(yaw) * hs * 0.15;
+                    appendTriangle(vertices, &n, rx, ry, nz, hs, r, g, b, a);
+                },
+                else => appendQuad(vertices, &n, nx, ny, nz, hs, r, g, b, a),
+            }
         }
         appendLegendText(vertices, &n, legend_text);
+        appendFullscreenTriangleNdc(vertices, &n);
 
         return vertices[0..n];
     }
@@ -612,6 +923,27 @@ const WindowsRenderer = struct {
         self.context.lpVtbl.*.IASetVertexBuffers.?(self.context, 0, 1, &vb, &stride, &offset);
         self.context.lpVtbl.*.VSSetShader.?(self.context, self.vertex_shader, null, 0);
         self.context.lpVtbl.*.PSSetShader.?(self.context, self.pixel_shader, null, 0);
+        const cbs = [_]?*c.ID3D11Buffer{self.scene_cb};
+        self.context.lpVtbl.*.PSSetConstantBuffers.?(self.context, 0, 1, &cbs);
+
+        const cb_data = fillSceneCB(plan, width, height);
+        var mapped_cb: c.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
+        const hr_cb = self.context.lpVtbl.*.Map.?(
+            self.context,
+            ptrAs(*c.ID3D11Resource, self.scene_cb),
+            0,
+            c.D3D11_MAP_WRITE_DISCARD,
+            0,
+            &mapped_cb,
+        );
+        if (hr_cb == c.S_OK and mapped_cb.pData != null) {
+            const src = std.mem.asBytes(&cb_data);
+            const dst = ptrAs([*]u8, mapped_cb.pData.?)[0..src.len];
+            @memcpy(dst, src);
+            self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*c.ID3D11Resource, self.scene_cb), 0);
+        } else {
+            log.err("d3d11 map scene constants failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_cb)))});
+        }
 
         var vertex_count: u32 = 0;
         const verts = self.buildPlanVertices(std.heap.c_allocator, width, height, plan, legend_text) catch |err| {
@@ -677,6 +1009,7 @@ const WindowsRenderer = struct {
     pub fn deinit(self: *WindowsRenderer) void {
         @setRuntimeSafety(false);
         _ = self.vertex_buffer.lpVtbl.*.Release.?(self.vertex_buffer);
+        _ = self.scene_cb.lpVtbl.*.Release.?(self.scene_cb);
         _ = self.input_layout.lpVtbl.*.Release.?(self.input_layout);
         _ = self.pixel_shader.lpVtbl.*.Release.?(self.pixel_shader);
         _ = self.vertex_shader.lpVtbl.*.Release.?(self.vertex_shader);

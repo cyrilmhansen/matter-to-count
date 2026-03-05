@@ -15,6 +15,7 @@ const Config = struct {
     height: u32 = 720,
     screenshot_out: ?[]u8 = null,
     scene_kind: scene_controller.SceneKind = .add,
+    camera_mode: scene_controller.CameraMode = .storyboard,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -55,6 +56,14 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             } else {
                 return error.InvalidArguments;
             }
+        } else if (std.mem.eql(u8, arg, "--camera")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            if (scene_controller.parseCameraMode(argv[i])) |mode| {
+                cfg.camera_mode = mode;
+            } else {
+                return error.InvalidArguments;
+            }
         }
     }
     return cfg;
@@ -73,7 +82,7 @@ pub fn main() !void {
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind);
+        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode);
     }
 
     var frame: u32 = 0;

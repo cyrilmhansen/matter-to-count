@@ -33,6 +33,14 @@ pub const SceneKind = enum {
     }
 };
 
+pub const CameraMode = event_scene.CameraMode;
+pub fn parseCameraMode(raw: []const u8) ?CameraMode {
+    if (std.mem.eql(u8, raw, "storyboard")) return .storyboard;
+    if (std.mem.eql(u8, raw, "cinematic")) return .cinematic;
+    if (std.mem.eql(u8, raw, "debug")) return .debug;
+    return null;
+}
+
 pub const FrameData = struct {
     plan: render_plan.RenderPlan,
     legend_buf: [64]u8,
@@ -52,10 +60,11 @@ pub const Controller = struct {
     pub const tick_count: u32 = 5;
 
     scene_kind: SceneKind,
+    camera_mode: CameraMode,
     frame_index: u32 = 0,
 
-    pub fn init(scene_kind: SceneKind) Controller {
-        return .{ .scene_kind = scene_kind };
+    pub fn init(scene_kind: SceneKind, camera_mode: CameraMode) Controller {
+        return .{ .scene_kind = scene_kind, .camera_mode = camera_mode };
     }
 
     pub fn nextFrame(self: *Controller, allocator: std.mem.Allocator) !FrameData {
@@ -66,10 +75,10 @@ pub const Controller = struct {
         const phase_pct: u32 = ((local % phase_frames) * 100) / phase_frames;
 
         var scene: event_scene.ArithmeticSceneState = switch (self.scene_kind) {
-            .add => try buildAddScene(allocator, tick, phase),
-            .sub => try buildSubScene(allocator, tick, phase),
-            .shift => try buildShiftScene(allocator, tick, phase),
-            .mul => try buildMulScene(allocator, tick, phase),
+            .add => try buildAddScene(allocator, tick, phase, self.camera_mode),
+            .sub => try buildSubScene(allocator, tick, phase, self.camera_mode),
+            .shift => try buildShiftScene(allocator, tick, phase, self.camera_mode),
+            .mul => try buildMulScene(allocator, tick, phase, self.camera_mode),
         };
         defer scene.deinit(allocator);
 
@@ -84,7 +93,7 @@ pub const Controller = struct {
     }
 };
 
-fn buildAddScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_scene.ArithmeticSceneState {
+fn buildAddScene(allocator: std.mem.Allocator, tick: u32, phase: f32, camera_mode: CameraMode) !event_scene.ArithmeticSceneState {
     const fx = fixtures.add_decimal_cascade_carry;
     var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
@@ -92,10 +101,10 @@ fn buildAddScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_sce
     defer rhs.deinit(allocator);
     var res = try addition.addWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
-    return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
+    return event_scene.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = tick, .phase = phase }, camera_mode);
 }
 
-fn buildSubScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_scene.ArithmeticSceneState {
+fn buildSubScene(allocator: std.mem.Allocator, tick: u32, phase: f32, camera_mode: CameraMode) !event_scene.ArithmeticSceneState {
     const fx = fixtures.sub_decimal_borrow_chain;
     var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
@@ -103,19 +112,19 @@ fn buildSubScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_sce
     defer rhs.deinit(allocator);
     var res = try subtraction.subWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
-    return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
+    return event_scene.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = tick, .phase = phase }, camera_mode);
 }
 
-fn buildShiftScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_scene.ArithmeticSceneState {
+fn buildShiftScene(allocator: std.mem.Allocator, tick: u32, phase: f32, camera_mode: CameraMode) !event_scene.ArithmeticSceneState {
     const fx = fixtures.shift_decimal_left_once;
     var input = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer input.deinit(allocator);
     var res = try shift.multiplyByBaseWithEvents(allocator, input);
     defer res.deinit(allocator);
-    return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
+    return event_scene.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = tick, .phase = phase }, camera_mode);
 }
 
-fn buildMulScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_scene.ArithmeticSceneState {
+fn buildMulScene(allocator: std.mem.Allocator, tick: u32, phase: f32, camera_mode: CameraMode) !event_scene.ArithmeticSceneState {
     const fx = fixtures.mul_base60_carry;
     var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
     defer lhs.deinit(allocator);
@@ -123,5 +132,5 @@ fn buildMulScene(allocator: std.mem.Allocator, tick: u32, phase: f32) !event_sce
     defer rhs.deinit(allocator);
     var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
     defer res.deinit(allocator);
-    return event_scene.buildSceneAtTime(allocator, res.tape, .{ .tick = tick, .phase = phase });
+    return event_scene.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = tick, .phase = phase }, camera_mode);
 }

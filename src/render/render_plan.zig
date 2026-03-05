@@ -23,6 +23,8 @@ pub const DrawPoint = struct {
     x: f32,
     y: f32,
     z: f32,
+    scale: f32,
+    yaw_deg: f32,
     r: f32,
     g: f32,
     b: f32,
@@ -31,6 +33,7 @@ pub const DrawPoint = struct {
 
 pub const RenderPlan = struct {
     points: []DrawPoint,
+    camera: es.CameraState,
 
     pub fn deinit(self: RenderPlan, allocator: std.mem.Allocator) void {
         allocator.free(self.points);
@@ -89,6 +92,8 @@ pub fn buildPlan(
             .x = d.x,
             .y = d.y,
             .z = d.z,
+            .scale = e.scale,
+            .yaw_deg = e.yaw_deg,
             .r = 0.0,
             .g = 0.0,
             .b = 0.0,
@@ -104,6 +109,8 @@ pub fn buildPlan(
             .x = d.x,
             .y = d.y,
             .z = d.z,
+            .scale = 1.0,
+            .yaw_deg = 0.0,
             .r = 1.0,
             .g = 1.0,
             .b = 0.35,
@@ -111,7 +118,7 @@ pub fn buildPlan(
         };
     }
 
-    return .{ .points = points };
+    return .{ .points = points, .camera = arithmetic.camera };
 }
 
 fn quantize(v: f32) i32 {
@@ -129,6 +136,8 @@ pub fn planHash(plan: RenderPlan) u64 {
         const qg = quantize(p.g);
         const qb = quantize(p.b);
         const qa = quantize(p.a);
+        const qs = quantize(p.scale);
+        const qyaw = quantize(p.yaw_deg);
         h.update(std.mem.asBytes(&qx));
         h.update(std.mem.asBytes(&qy));
         h.update(std.mem.asBytes(&qz));
@@ -136,7 +145,15 @@ pub fn planHash(plan: RenderPlan) u64 {
         h.update(std.mem.asBytes(&qg));
         h.update(std.mem.asBytes(&qb));
         h.update(std.mem.asBytes(&qa));
+        h.update(std.mem.asBytes(&qs));
+        h.update(std.mem.asBytes(&qyaw));
     }
+    const cy = quantize(plan.camera.yaw_deg);
+    const cp = quantize(plan.camera.pitch_deg);
+    const ck = quantize(plan.camera.perspective);
+    h.update(std.mem.asBytes(&cy));
+    h.update(std.mem.asBytes(&cp));
+    h.update(std.mem.asBytes(&ck));
     return h.final();
 }
 
@@ -144,6 +161,8 @@ fn isFinitePoint(p: DrawPoint) bool {
     return std.math.isFinite(p.x) and
         std.math.isFinite(p.y) and
         std.math.isFinite(p.z) and
+        std.math.isFinite(p.scale) and
+        std.math.isFinite(p.yaw_deg) and
         std.math.isFinite(p.r) and
         std.math.isFinite(p.g) and
         std.math.isFinite(p.b) and

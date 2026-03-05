@@ -46,9 +46,9 @@ pub fn mapArithmeticToDots(
 
     var i: usize = 0;
     for (arithmetic.entities) |e| {
-        const x = e.x * cfg.column_spacing;
-        const y = roleYOffset(e.role, cfg) + (e.y - 0.5) * 0.2;
-        const z = roleDepth(e.role);
+        const x = e.pos_x * cfg.column_spacing;
+        const y = roleYOffset(e.role, cfg) + (e.pos_y - 0.5) * 0.2;
+        const z = roleDepth(e.role) + e.pos_z * 0.4;
         dots[i] = .{ .x = x, .y = y, .z = z };
         i += 1;
     }

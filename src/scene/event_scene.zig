@@ -30,8 +30,11 @@ pub const Entity = struct {
     value: u16,
     visible: bool,
     in_transit: bool,
-    x: f32,
-    y: f32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    scale: f32,
+    yaw_deg: f32,
     emissive: EmissiveClass,
 };
 
@@ -40,10 +43,23 @@ pub const TimeSample = struct {
     phase: f32, // [0.0, 1.0]
 };
 
+pub const CameraMode = enum {
+    storyboard,
+    cinematic,
+    debug,
+};
+
+pub const CameraState = struct {
+    yaw_deg: f32,
+    pitch_deg: f32,
+    perspective: f32,
+};
+
 pub const ArithmeticSceneState = struct {
     entities: []Entity,
     active_columns: []u16,
     is_finalized: bool,
+    camera: CameraState,
 
     pub fn deinit(self: ArithmeticSceneState, allocator: std.mem.Allocator) void {
         allocator.free(self.entities);
@@ -79,6 +95,88 @@ fn eventIsActiveThisTick(e: event.Event, sample: TimeSample) bool {
     return e.time.tick == sample.tick;
 }
 
+fn hasKind(t: tape.EventTape, kind: event.EventKind) bool {
+    for (t.events) |e| {
+        if (e.kind == kind) return true;
+    }
+    return false;
+}
+
+const CameraProfile = enum {
+    add,
+    sub,
+    shift,
+    mul,
+};
+
+const CameraMoment = enum {
+    transfer,
+    settle,
+    final,
+};
+
+fn detectProfile(t: tape.EventTape) CameraProfile {
+    if (hasKind(t, .partial_row_start)) return .mul;
+    if (hasKind(t, .borrow_request)) return .sub;
+    if (hasKind(t, .shift_start)) return .shift;
+    return .add;
+}
+
+fn detectMoment(sample: TimeSample, is_finalized: bool) CameraMoment {
+    if (is_finalized) return .final;
+    if (clampPhase(sample.phase) >= 0.85) return .settle;
+    return .transfer;
+}
+
+fn baseCamera(profile: CameraProfile, moment: CameraMoment) CameraState {
+    return switch (profile) {
+        .add => switch (moment) {
+            .transfer => .{ .yaw_deg = 24.0, .pitch_deg = 16.0, .perspective = 0.36 },
+            .settle => .{ .yaw_deg = 20.0, .pitch_deg = 14.0, .perspective = 0.33 },
+            .final => .{ .yaw_deg = 14.0, .pitch_deg = 10.0, .perspective = 0.28 },
+        },
+        .sub => switch (moment) {
+            .transfer => .{ .yaw_deg = 22.0, .pitch_deg = 17.0, .perspective = 0.37 },
+            .settle => .{ .yaw_deg = 19.0, .pitch_deg = 15.0, .perspective = 0.34 },
+            .final => .{ .yaw_deg = 13.0, .pitch_deg = 10.0, .perspective = 0.28 },
+        },
+        .shift => switch (moment) {
+            .transfer => .{ .yaw_deg = 18.0, .pitch_deg = 12.0, .perspective = 0.31 },
+            .settle => .{ .yaw_deg = 16.0, .pitch_deg = 10.0, .perspective = 0.29 },
+            .final => .{ .yaw_deg = 12.0, .pitch_deg = 8.0, .perspective = 0.25 },
+        },
+        .mul => switch (moment) {
+            .transfer => .{ .yaw_deg = 32.0, .pitch_deg = 20.0, .perspective = 0.44 },
+            .settle => .{ .yaw_deg = 27.0, .pitch_deg = 17.0, .perspective = 0.40 },
+            .final => .{ .yaw_deg = 18.0, .pitch_deg = 12.0, .perspective = 0.32 },
+        },
+    };
+}
+
+fn applyCameraMode(base: CameraState, mode: CameraMode) CameraState {
+    var c = base;
+    switch (mode) {
+        .storyboard => {},
+        .cinematic => {
+            c.yaw_deg *= 1.20;
+            c.pitch_deg *= 1.15;
+            c.perspective *= 1.25;
+        },
+        .debug => {
+            c.yaw_deg = 0.0;
+            c.pitch_deg = 0.0;
+            c.perspective = 0.05;
+        },
+    }
+    return c;
+}
+
+fn deriveCamera(t: tape.EventTape, sample: TimeSample, is_finalized: bool, mode: CameraMode) CameraState {
+    const profile = detectProfile(t);
+    const moment = detectMoment(sample, is_finalized);
+    return applyCameraMode(baseCamera(profile, moment), mode);
+}
+
 fn packetProgress(start_substep: u16, phase: f32) f32 {
     const start = @as(f32, @floatFromInt(start_substep)) / 100.0;
     const p = clampPhase(phase);
@@ -105,6 +203,35 @@ fn pushPacketEntity(
     const p = packetProgress(substep, phase);
     const x0 = @as(f32, @floatFromInt(src_column));
     const x1 = @as(f32, @floatFromInt(dst_column));
+    const dx = x1 - x0;
+    const arc = @sin(p * std.math.pi);
+
+    var pos_y: f32 = 0.5;
+    var pos_z: f32 = 0.08;
+    var yaw_deg: f32 = dx * 18.0;
+    var scale: f32 = 1.05;
+    switch (role) {
+        .carry_packet => {
+            pos_y = 0.56 + arc * 0.10;
+            pos_z = 0.14 + arc * 0.22;
+            yaw_deg = dx * 24.0;
+            scale = 1.12;
+        },
+        .borrow_packet => {
+            pos_y = 0.44 + arc * 0.08;
+            pos_z = 0.10 + arc * 0.16;
+            yaw_deg = dx * 20.0;
+            scale = 1.08;
+        },
+        .shift_packet => {
+            pos_y = 0.50 + (p - 0.5) * 0.04;
+            pos_z = 0.08 + arc * 0.10;
+            yaw_deg = dx * 14.0;
+            scale = 1.04;
+        },
+        else => {},
+    }
+
     try entities.append(allocator, .{
         .id = next_id.*,
         .role = role,
@@ -112,14 +239,26 @@ fn pushPacketEntity(
         .value = value,
         .visible = true,
         .in_transit = true,
-        .x = x0 + (x1 - x0) * p,
-        .y = 0.5,
+        .pos_x = x0 + (x1 - x0) * p,
+        .pos_y = pos_y,
+        .pos_z = pos_z,
+        .scale = scale,
+        .yaw_deg = yaw_deg,
         .emissive = .highlight,
     });
     next_id.* += 1;
 }
 
 pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample: TimeSample) !ArithmeticSceneState {
+    return buildSceneAtTimeWithCameraMode(allocator, t, sample, .storyboard);
+}
+
+pub fn buildSceneAtTimeWithCameraMode(
+    allocator: std.mem.Allocator,
+    t: tape.EventTape,
+    sample: TimeSample,
+    camera_mode: CameraMode,
+) !ArithmeticSceneState {
     const max_col = maxColumnInTape(t);
     const col_count: usize = @as(usize, max_col) + 1;
 
@@ -184,6 +323,7 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
     var row: usize = 0;
     while (row < col_count) : (row += 1) {
         if (partial_row_active[row]) {
+            const row_f = @as(f32, @floatFromInt(row));
             try entities.append(allocator, .{
                 .id = next_id,
                 .role = .partial_row_marker,
@@ -191,8 +331,11 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
                 .value = 0,
                 .visible = true,
                 .in_transit = false,
-                .x = @as(f32, @floatFromInt(row)),
-                .y = 1.5,
+                .pos_x = @as(f32, @floatFromInt(row)),
+                .pos_y = 1.5,
+                .pos_z = 0.14 + row_f * 0.06,
+                .scale = 1.15 + row_f * 0.03,
+                .yaw_deg = 0.0,
                 .emissive = .highlight,
             });
             next_id += 1;
@@ -209,8 +352,11 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
                 .value = @as(u16, @intCast(source_values[col])),
                 .visible = true,
                 .in_transit = false,
-                .x = @as(f32, @floatFromInt(col)),
-                .y = 0.0,
+                .pos_x = @as(f32, @floatFromInt(col)),
+                .pos_y = 0.0,
+                .pos_z = 0.0,
+                .scale = 1.0,
+                .yaw_deg = 0.0,
                 .emissive = if (active_flags[col]) .active else .idle,
             });
             next_id += 1;
@@ -223,8 +369,11 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
                 .value = @as(u16, @intCast(result_values[col])),
                 .visible = true,
                 .in_transit = false,
-                .x = @as(f32, @floatFromInt(col)),
-                .y = 1.0,
+                .pos_x = @as(f32, @floatFromInt(col)),
+                .pos_y = 1.0,
+                .pos_z = 0.02,
+                .scale = 1.0,
+                .yaw_deg = 0.0,
                 .emissive = if (active_flags[col]) .active else .idle,
             });
             next_id += 1;
@@ -244,6 +393,7 @@ pub fn buildSceneAtTime(allocator: std.mem.Allocator, t: tape.EventTape, sample:
         .entities = try entities.toOwnedSlice(allocator),
         .active_columns = try active_columns_list.toOwnedSlice(allocator),
         .is_finalized = is_finalized,
+        .camera = deriveCamera(t, sample, is_finalized, camera_mode),
     };
 }
 
@@ -260,6 +410,13 @@ fn hasActiveColumn(scene: ArithmeticSceneState, col: u16) bool {
         if (c == col) return true;
     }
     return false;
+}
+
+fn firstRoleEntity(scene: ArithmeticSceneState, role: EntityRole) ?Entity {
+    for (scene.entities) |e| {
+        if (e.role == role and e.visible) return e;
+    }
+    return null;
 }
 
 test "scene mapping: add single carry exposes carry packet in transit" {
@@ -397,4 +554,131 @@ test "scene mapping: finalize appears at final sample" {
     try std.testing.expectEqual(@as(usize, 0), countRole(scene, .carry_packet));
     try std.testing.expectEqual(@as(usize, 0), countRole(scene, .borrow_packet));
     try std.testing.expectEqual(@as(usize, 0), countRole(scene, .shift_packet));
+}
+
+test "camera rig is deterministic and operation-sensitive" {
+    const allocator = std.testing.allocator;
+
+    const add_fx = fixtures.add_decimal_single_carry;
+    var add_lhs = try number.DigitNumber.fromU64(allocator, add_fx.base, add_fx.lhs);
+    defer add_lhs.deinit(allocator);
+    var add_rhs = try number.DigitNumber.fromU64(allocator, add_fx.base, add_fx.rhs);
+    defer add_rhs.deinit(allocator);
+    var add_res = try addition.addWithEvents(allocator, add_lhs, add_rhs);
+    defer add_res.deinit(allocator);
+    var add_scene = try buildSceneAtTime(allocator, add_res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer add_scene.deinit(allocator);
+
+    const mul_fx = fixtures.mul_base60_carry;
+    var mul_lhs = try number.DigitNumber.fromU64(allocator, mul_fx.base, mul_fx.lhs);
+    defer mul_lhs.deinit(allocator);
+    var mul_rhs = try number.DigitNumber.fromU64(allocator, mul_fx.base, mul_fx.rhs);
+    defer mul_rhs.deinit(allocator);
+    var mul_res = try multiplication.multiplyWithEvents(allocator, mul_lhs, mul_rhs);
+    defer mul_res.deinit(allocator);
+    var mul_scene = try buildSceneAtTime(allocator, mul_res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer mul_scene.deinit(allocator);
+
+    try std.testing.expect(add_scene.camera.yaw_deg != mul_scene.camera.yaw_deg);
+    try std.testing.expect(add_scene.camera.perspective != mul_scene.camera.perspective);
+}
+
+test "camera keyframe targets for multiplication and mode overrides" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var transfer = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .storyboard);
+    defer transfer.deinit(allocator);
+    try std.testing.expectEqual(@as(f32, 32.0), transfer.camera.yaw_deg);
+    try std.testing.expectEqual(@as(f32, 20.0), transfer.camera.pitch_deg);
+
+    var final_story = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 4, .phase = 1.0 }, .storyboard);
+    defer final_story.deinit(allocator);
+    try std.testing.expectEqual(@as(f32, 18.0), final_story.camera.yaw_deg);
+    try std.testing.expectEqual(@as(f32, 12.0), final_story.camera.pitch_deg);
+
+    var final_debug = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 4, .phase = 1.0 }, .debug);
+    defer final_debug.deinit(allocator);
+    try std.testing.expectEqual(@as(f32, 0.0), final_debug.camera.yaw_deg);
+    try std.testing.expectEqual(@as(f32, 0.0), final_debug.camera.pitch_deg);
+    try std.testing.expectEqual(@as(f32, 0.05), final_debug.camera.perspective);
+}
+
+test "entities expose explicit 3d transform fields" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer scene.deinit(allocator);
+
+    for (scene.entities) |e| {
+        try std.testing.expect(std.math.isFinite(e.pos_x));
+        try std.testing.expect(std.math.isFinite(e.pos_y));
+        try std.testing.expect(std.math.isFinite(e.pos_z));
+        try std.testing.expect(std.math.isFinite(e.scale));
+        try std.testing.expect(std.math.isFinite(e.yaw_deg));
+        try std.testing.expect(e.scale > 0.0);
+    }
+}
+
+test "packet choreography uses role-specific 3d arcs" {
+    const allocator = std.testing.allocator;
+
+    var add_lhs = try number.DigitNumber.fromU64(allocator, fixtures.add_decimal_single_carry.base, fixtures.add_decimal_single_carry.lhs);
+    defer add_lhs.deinit(allocator);
+    var add_rhs = try number.DigitNumber.fromU64(allocator, fixtures.add_decimal_single_carry.base, fixtures.add_decimal_single_carry.rhs);
+    defer add_rhs.deinit(allocator);
+    var add_res = try addition.addWithEvents(allocator, add_lhs, add_rhs);
+    defer add_res.deinit(allocator);
+    var add_scene = try buildSceneAtTime(allocator, add_res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer add_scene.deinit(allocator);
+
+    var shift_in = try number.DigitNumber.fromU64(allocator, fixtures.shift_decimal_left_once.base, fixtures.shift_decimal_left_once.lhs);
+    defer shift_in.deinit(allocator);
+    var shift_res = try shift.multiplyByBaseWithEvents(allocator, shift_in);
+    defer shift_res.deinit(allocator);
+    var shift_scene = try buildSceneAtTime(allocator, shift_res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer shift_scene.deinit(allocator);
+
+    const carry = firstRoleEntity(add_scene, .carry_packet) orelse return error.TestUnexpectedResult;
+    const shift_pkt = firstRoleEntity(shift_scene, .shift_packet) orelse return error.TestUnexpectedResult;
+
+    try std.testing.expect(carry.pos_z > shift_pkt.pos_z);
+    try std.testing.expect(carry.scale > shift_pkt.scale);
+}
+
+test "multiplication partial rows are depth-separated by row index across samples" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var row0_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer row0_scene.deinit(allocator);
+    var row1_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 2, .phase = 0.5 });
+    defer row1_scene.deinit(allocator);
+
+    const row0 = firstRoleEntity(row0_scene, .partial_row_marker) orelse return error.TestUnexpectedResult;
+    const row1 = firstRoleEntity(row1_scene, .partial_row_marker) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(row1.column > row0.column);
+    try std.testing.expect(row1.pos_z > row0.pos_z);
 }

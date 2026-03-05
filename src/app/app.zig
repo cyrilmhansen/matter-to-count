@@ -5,7 +5,14 @@ const log = @import("../util/logging.zig");
 const d3d11 = @import("../render/d3d11.zig");
 const scene_controller = @import("scene_controller.zig");
 
-pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8, scene_kind: scene_controller.SceneKind) !void {
+pub fn run(
+    frames: u32,
+    width: u32,
+    height: u32,
+    screenshot_out: ?[]const u8,
+    scene_kind: scene_controller.SceneKind,
+    camera_mode: scene_controller.CameraMode,
+) !void {
     if (builtin.os.tag != .windows) return;
     const win32 = @import("../platform/win32/window.zig");
 
@@ -13,7 +20,7 @@ pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8, sc
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const window = win32.create(allocator, "Matter to Count - Milestone 1", width, height) catch |err| {
+    const window = win32.create(allocator, "Matter to Count - Milestone 3 Preview", width, height) catch |err| {
         log.err("win32.create failed: {}", .{err});
         return err;
     };
@@ -24,7 +31,7 @@ pub fn run(frames: u32, width: u32, height: u32, screenshot_out: ?[]const u8, sc
         return err;
     };
     defer renderer.deinit();
-    var controller = scene_controller.Controller.init(scene_kind);
+    var controller = scene_controller.Controller.init(scene_kind, camera_mode);
 
     var clock = time.FixedClock.init(1.0 / 60.0);
     var fb_width = window.width;

@@ -14,7 +14,15 @@ fn quantizeCoord(v: f32) i32 {
 
 pub fn writeCompactSnapshot(writer: anytype, scene: es.ArithmeticSceneState) !void {
     const finalized: u8 = if (scene.is_finalized) 1 else 0;
-    try writer.print("v1|f={d}|ac=", .{finalized});
+    try writer.print(
+        "v1|f={d}|cam={d}:{d}:{d}|ac=",
+        .{
+            finalized,
+            quantizeCoord(scene.camera.yaw_deg),
+            quantizeCoord(scene.camera.pitch_deg),
+            quantizeCoord(scene.camera.perspective),
+        },
+    );
     for (scene.active_columns, 0..) |col, i| {
         if (i != 0) try writer.writeByte(',');
         try writer.print("{d}", .{col});
@@ -23,7 +31,7 @@ pub fn writeCompactSnapshot(writer: anytype, scene: es.ArithmeticSceneState) !vo
     for (scene.entities, 0..) |e, i| {
         if (i != 0) try writer.writeByte(';');
         try writer.print(
-            "{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}",
+            "{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}:{d}",
             .{
                 e.id,
                 @intFromEnum(e.role),
@@ -31,8 +39,11 @@ pub fn writeCompactSnapshot(writer: anytype, scene: es.ArithmeticSceneState) !vo
                 e.value,
                 @as(u8, if (e.visible) 1 else 0),
                 @as(u8, if (e.in_transit) 1 else 0),
-                quantizeCoord(e.x),
-                quantizeCoord(e.y),
+                quantizeCoord(e.pos_x),
+                quantizeCoord(e.pos_y),
+                quantizeCoord(e.pos_z),
+                quantizeCoord(e.scale),
+                quantizeCoord(e.yaw_deg),
                 @intFromEnum(e.emissive),
             },
         );
