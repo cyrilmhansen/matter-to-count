@@ -106,4 +106,11 @@ pub fn build(b: *std.Build) void {
     raymarch_test_cmd.step.dependOn(&install_win64.step);
     const raymarch_test_step = b.step("test-raymarch-keyframes", "Integration test: raymarch keyframe images match baselines");
     raymarch_test_step.dependOn(&raymarch_test_cmd.step);
+
+    const m4_review_pack_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    m4_review_pack_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/capture_m4_review_pack.sh");
+    m4_review_pack_cmd.addArtifactArg(exe_win64);
+    m4_review_pack_cmd.step.dependOn(&install_win64.step);
+    const m4_review_pack_step = b.step("m4-review-pack", "Capture curated Milestone 4 storyboard review screenshots");
+    m4_review_pack_step.dependOn(&m4_review_pack_cmd.step);
 }

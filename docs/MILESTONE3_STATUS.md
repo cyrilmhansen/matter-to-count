@@ -44,3 +44,6 @@ Milestone 3 targeted:
 
 Milestone 3 engineering deliverables are complete and gated by deterministic tests.
 Remaining closure item is manual artistic review/sign-off.
+
+Handoff:
+- Milestone 4 workstream is tracked in `docs/MILESTONE4_PLAN.md`.

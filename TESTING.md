@@ -524,6 +524,14 @@ Run:
 - beauty-frame comparisons;
 - artifact generation for manual review.
 
+Current deterministic review-pack entrypoint:
+
+```bash
+zig build m4-review-pack
+```
+
+This writes a curated screenshot set and manifest to `/tmp/mtc_m4_review_pack`.
+
 This prevents visual tests from slowing down everyday iteration too much.
 
 ---
