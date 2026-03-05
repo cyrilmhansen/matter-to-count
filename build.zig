@@ -92,4 +92,18 @@ pub fn build(b: *std.Build) void {
     scene_overlay_test_cmd.step.dependOn(&install_win64.step);
     const scene_overlay_test_step = b.step("test-scene-overlay", "Integration test: scene overlay is visible and changes across timesteps");
     scene_overlay_test_step.dependOn(&scene_overlay_test_cmd.step);
+
+    const raymarch_rebaseline_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    raymarch_rebaseline_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/rebaseline_raymarch_keyframes.sh");
+    raymarch_rebaseline_cmd.addArtifactArg(exe_win64);
+    raymarch_rebaseline_cmd.step.dependOn(&install_win64.step);
+    const raymarch_rebaseline_step = b.step("rebaseline-raymarch-keyframes", "Capture and rebaseline raymarch keyframe screenshots");
+    raymarch_rebaseline_step.dependOn(&raymarch_rebaseline_cmd.step);
+
+    const raymarch_test_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    raymarch_test_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/test_raymarch_keyframes.sh");
+    raymarch_test_cmd.addArtifactArg(exe_win64);
+    raymarch_test_cmd.step.dependOn(&install_win64.step);
+    const raymarch_test_step = b.step("test-raymarch-keyframes", "Integration test: raymarch keyframe images match baselines");
+    raymarch_test_step.dependOn(&raymarch_test_cmd.step);
 }

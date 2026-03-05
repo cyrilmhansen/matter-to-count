@@ -1,0 +1,6 @@
+# Raymarch keyframe baselines
+# Re-generate with: scripts/rebaseline_raymarch_keyframes.sh
+# Format: id sha256 unique_colors_min
+add_mid_cine 61b82319150662bbe897b7252281e37d83f7b03aa15fd2fea21931f9dd153529 826
+mul_mid_cine 579615522f8efb0d4aaa4547d8062c30d5475f232d8bfb9172d0821e49bb191e 56
+mul_final_story cc1abf918fa17286b4b8cbebedee517c1edd6825f7375ac1971e281ef625df08 526

@@ -100,6 +100,7 @@ test "compact snapshot includes semantic fields" {
     defer allocator.free(text);
 
     try std.testing.expect(std.mem.indexOf(u8, text, "v1|f=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "|cam=") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "|ac=") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "|e=") != null);
 }

@@ -609,6 +609,13 @@ test "camera keyframe targets for multiplication and mode overrides" {
     try std.testing.expectEqual(@as(f32, 0.0), final_debug.camera.yaw_deg);
     try std.testing.expectEqual(@as(f32, 0.0), final_debug.camera.pitch_deg);
     try std.testing.expectEqual(@as(f32, 0.05), final_debug.camera.perspective);
+
+    var transfer_story = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .storyboard);
+    defer transfer_story.deinit(allocator);
+    var transfer_cine = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .cinematic);
+    defer transfer_cine.deinit(allocator);
+    try std.testing.expect(transfer_cine.camera.yaw_deg > transfer_story.camera.yaw_deg);
+    try std.testing.expect(transfer_cine.camera.perspective > transfer_story.camera.perspective);
 }
 
 test "entities expose explicit 3d transform fields" {

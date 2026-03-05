@@ -256,3 +256,28 @@ test "render plan hash changes across phase" {
 
     try std.testing.expect(planHash(p_early) != planHash(p_late));
 }
+
+test "render plan hash changes across camera modes for same tape sample" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+    const cfg = layout.LayoutConfig{};
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try @import("../math/multiplication.zig").multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var story = try es.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .storyboard);
+    defer story.deinit(allocator);
+    var cine = try es.buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .cinematic);
+    defer cine.deinit(allocator);
+
+    var p_story = try buildPlan(allocator, story, cfg);
+    defer p_story.deinit(allocator);
+    var p_cine = try buildPlan(allocator, cine, cfg);
+    defer p_cine.deinit(allocator);
+
+    try std.testing.expect(planHash(p_story) != planHash(p_cine));
+}

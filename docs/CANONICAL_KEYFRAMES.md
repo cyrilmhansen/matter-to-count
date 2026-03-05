@@ -1,6 +1,6 @@
 # Canonical Keyframes
 
-Milestone 2 regression keyframes are centralized in:
+Milestone 2 deterministic semantic/layout/render-plan keyframes are centralized in:
 
 - `src/tests/keyframes.zig`: canonical scene/timestep definitions
 - `src/tests/keyframes_baselines.zig`: expected semantic/layout/render-plan hashes
@@ -23,3 +23,25 @@ zig build rebaseline-keyframes
 ```
 
 This rewrites `src/tests/keyframes_baselines.zig`.
+
+## Milestone 3 raymarch keyframes
+
+Milestone 3 adds screenshot-based deterministic raymarch checks:
+
+- baseline table: `docs/RAYMARCH_KEYFRAME_BASELINES.txt`
+- capture script: `scripts/capture_raymarch_keyframes.sh`
+- rebaseline script: `scripts/rebaseline_raymarch_keyframes.sh`
+- verification script: `scripts/test_raymarch_keyframes.sh`
+
+Build entrypoints:
+
+```bash
+zig build rebaseline-raymarch-keyframes
+zig build test-raymarch-keyframes
+```
+
+Current curated set:
+
+1. `add_mid_cine`
+2. `mul_mid_cine`
+3. `mul_final_story`

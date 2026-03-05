@@ -140,6 +140,29 @@ M3 is complete only if all are true:
 
 ---
 
+## Progress Snapshot (March 5, 2026)
+
+Completed:
+- CPU scene-state now carries explicit 3D transforms (`x/y/z`, scale class) and deterministic camera output.
+- Multiplication choreography consumes `partial_row_*` semantics and stages row-boundary emphasis.
+- D3D11 render path now runs a raymarched fullscreen pass using scene-role instances and camera matrices.
+- Raymarch shading includes directional light, soft shadows, AO, bounce, and ground/contact anchoring.
+- CPU determinism coverage was expanded with camera-mode and multiplication-focused scene/hash assertions.
+- Win64 screenshot keyframe regression pipeline was added:
+  - `zig build rebaseline-raymarch-keyframes`
+  - `zig build test-raymarch-keyframes`
+  - baselines in `docs/RAYMARCH_KEYFRAME_BASELINES.txt`.
+
+In progress:
+- Expand scene modeling richness per role group (multi-part column forms, stronger packet shape language).
+
+Next:
+1. Increase role-specific SDF composition depth while preserving deterministic snapshots.
+2. Add a second curated raymarch keyframe set focused on subtraction/shift readability in 3D.
+3. Promote milestone status docs/tests to a final M3 acceptance report.
+
+---
+
 ## Suggested Implementation Order
 
 1. Add 3D fields to scene entities and update snapshot hashing.
@@ -169,6 +192,6 @@ Risk: too much change in one patch.
 
 ---
 
-## Immediate Next Task (M3.0)
+## Immediate Next Task
 
-Start with scene model + camera data extension and CPU-only tests first, before touching D3D shader/backend details.
+Increase role-specific 3D form richness (columns/packets/markers) and lock it with one additional deterministic raymarch keyframe regression sample.
