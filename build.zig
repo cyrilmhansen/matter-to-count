@@ -113,4 +113,11 @@ pub fn build(b: *std.Build) void {
     m4_review_pack_cmd.step.dependOn(&install_win64.step);
     const m4_review_pack_step = b.step("m4-review-pack", "Capture curated Milestone 4 storyboard review screenshots");
     m4_review_pack_step.dependOn(&m4_review_pack_cmd.step);
+
+    const m4_debug_pack_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    m4_debug_pack_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/capture_m4_debug_pack.sh");
+    m4_debug_pack_cmd.addArtifactArg(exe_win64);
+    m4_debug_pack_cmd.step.dependOn(&install_win64.step);
+    const m4_debug_pack_step = b.step("m4-debug-pack", "Capture curated Milestone 4 debug-camera screenshots");
+    m4_debug_pack_step.dependOn(&m4_debug_pack_cmd.step);
 }

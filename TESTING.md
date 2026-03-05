@@ -532,6 +532,14 @@ zig build m4-review-pack
 
 This writes a curated screenshot set and manifest to `/tmp/mtc_m4_review_pack`.
 
+Debug-camera companion pack:
+
+```bash
+zig build m4-debug-pack
+```
+
+This writes a curated screenshot set and manifest to `/tmp/mtc_m4_debug_pack`.
+
 This prevents visual tests from slowing down everyday iteration too much.
 
 ---
