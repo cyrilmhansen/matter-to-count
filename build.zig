@@ -120,4 +120,25 @@ pub fn build(b: *std.Build) void {
     m4_debug_pack_cmd.step.dependOn(&install_win64.step);
     const m4_debug_pack_step = b.step("m4-debug-pack", "Capture curated Milestone 4 debug-camera screenshots");
     m4_debug_pack_step.dependOn(&m4_debug_pack_cmd.step);
+
+    const m4_debug_pass_pack_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    m4_debug_pass_pack_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/capture_m4_debug_pass_pack.sh");
+    m4_debug_pass_pack_cmd.addArtifactArg(exe_win64);
+    m4_debug_pass_pack_cmd.step.dependOn(&install_win64.step);
+    const m4_debug_pass_pack_step = b.step("m4-debug-pass-pack", "Capture curated Milestone 4 depth/role-id debug-pass screenshots");
+    m4_debug_pass_pack_step.dependOn(&m4_debug_pass_pack_cmd.step);
+
+    const m4_rebaseline_debug_pass_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    m4_rebaseline_debug_pass_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/rebaseline_m4_debug_pass_pack.sh");
+    m4_rebaseline_debug_pass_cmd.addArtifactArg(exe_win64);
+    m4_rebaseline_debug_pass_cmd.step.dependOn(&install_win64.step);
+    const m4_rebaseline_debug_pass_step = b.step("rebaseline-m4-debug-pass", "Capture and rebaseline Milestone 4 debug-pass screenshots");
+    m4_rebaseline_debug_pass_step.dependOn(&m4_rebaseline_debug_pass_cmd.step);
+
+    const m4_test_debug_pass_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
+    m4_test_debug_pass_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/test_m4_debug_pass_pack.sh");
+    m4_test_debug_pass_cmd.addArtifactArg(exe_win64);
+    m4_test_debug_pass_cmd.step.dependOn(&install_win64.step);
+    const m4_test_debug_pass_step = b.step("test-m4-debug-pass", "Integration test: Milestone 4 debug-pass images match baselines");
+    m4_test_debug_pass_step.dependOn(&m4_test_debug_pass_cmd.step);
 }

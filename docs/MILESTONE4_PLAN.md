@@ -21,6 +21,7 @@ Core M4 intent:
 2. Review-pack automation
 - deterministic curated screenshot pack for milestone reviews;
 - deterministic debug-camera screenshot pack for staging-focused review;
+- deterministic depth/role-id debug-pass screenshot pack;
 - simple manifest (hash + color diversity) for traceability;
 - one build entrypoint for local and CI usage.
 
@@ -34,10 +35,15 @@ Core M4 intent:
 1. Build step:
 - `zig build m4-review-pack`
 - `zig build m4-debug-pack`
+- `zig build m4-debug-pass-pack`
+- `zig build rebaseline-m4-debug-pass`
+- `zig build test-m4-debug-pass`
 
 2. Capture script:
 - `scripts/capture_m4_review_pack.sh`
 - `scripts/capture_m4_debug_pack.sh`
+- `scripts/capture_m4_debug_pass_pack.sh`
+  - regression baseline file: `docs/M4_DEBUG_PASS_BASELINES.txt`
 
 3. Documentation:
 - this plan document;
@@ -49,10 +55,12 @@ Core M4 intent:
 2. `zig build test-raymarch-keyframes` remains green.
 3. `zig build m4-review-pack` emits deterministic capture pack + manifest.
 4. `zig build m4-debug-pack` emits deterministic debug-camera pack + manifest.
-5. Manual review can compare storyboard and debug packs side-by-side.
+5. `zig build m4-debug-pass-pack` emits deterministic depth/role-id pack + manifest.
+6. `zig build test-m4-debug-pass` passes against deterministic debug-pass baselines.
+7. Manual review can compare storyboard, debug-camera, and debug-pass packs side-by-side.
 
 ## Immediate Next Tasks
 
 1. Run first M4 review pack and annotate visual deltas by role.
-2. Introduce depth/ID shader debug-pass capture (in addition to debug-camera pack) to disambiguate lighting vs staging regressions.
+2. Promote selected M4 debug-pass frames into stricter regression checks once stable.
 3. Promote selected M4 review-pack frames into the regression keyframe set once stable.

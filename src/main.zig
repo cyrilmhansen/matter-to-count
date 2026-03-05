@@ -16,6 +16,7 @@ const Config = struct {
     screenshot_out: ?[]u8 = null,
     scene_kind: scene_controller.SceneKind = .add,
     camera_mode: scene_controller.CameraMode = .storyboard,
+    render_view: @import("render/d3d11.zig").RenderView = .beauty,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -64,6 +65,18 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             } else {
                 return error.InvalidArguments;
             }
+        } else if (std.mem.eql(u8, arg, "--view")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            if (std.mem.eql(u8, argv[i], "beauty")) {
+                cfg.render_view = .beauty;
+            } else if (std.mem.eql(u8, argv[i], "depth")) {
+                cfg.render_view = .depth;
+            } else if (std.mem.eql(u8, argv[i], "role-id")) {
+                cfg.render_view = .role_id;
+            } else {
+                return error.InvalidArguments;
+            }
         }
     }
     return cfg;
@@ -82,7 +95,7 @@ pub fn main() !void {
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode);
+        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode, cfg.render_view);
     }
 
     var frame: u32 = 0;

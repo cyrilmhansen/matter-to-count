@@ -12,6 +12,7 @@ pub fn run(
     screenshot_out: ?[]const u8,
     scene_kind: scene_controller.SceneKind,
     camera_mode: scene_controller.CameraMode,
+    render_view: d3d11.RenderView,
 ) !void {
     if (builtin.os.tag != .windows) return;
     const win32 = @import("../platform/win32/window.zig");
@@ -54,7 +55,7 @@ pub fn run(
             return err;
         };
         defer frame_data.deinit(allocator);
-        renderer.render(fb_width, fb_height, frame_data.plan, frame_data.legend());
+        renderer.render(fb_width, fb_height, frame_data.plan, frame_data.legend(), render_view);
         clock.tick();
     }
 

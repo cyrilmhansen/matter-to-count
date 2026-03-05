@@ -12,13 +12,18 @@ const c = if (builtin.os.tag == .windows) @cImport({
 }) else struct {};
 
 pub const Renderer = if (builtin.os.tag == .windows) WindowsRenderer else StubRenderer;
+pub const RenderView = enum(u32) {
+    beauty = 0,
+    depth = 1,
+    role_id = 2,
+};
 
 const StubRenderer = struct {
     pub fn init(_: win32.HWND, _: u32, _: u32) !StubRenderer {
         return error.UnsupportedPlatform;
     }
 
-    pub fn render(_: *StubRenderer, _: u32, _: u32, _: render_plan.RenderPlan, _: []const u8) void {}
+    pub fn render(_: *StubRenderer, _: u32, _: u32, _: render_plan.RenderPlan, _: []const u8, _: RenderView) void {}
 
     pub fn resize(_: *StubRenderer, _: u32, _: u32) !void {}
 
@@ -212,7 +217,7 @@ const WindowsRenderer = struct {
         cam: [4]f32, // yaw_rad, pitch_rad, perspective, aspect
         light: [4]f32,
         screen: [4]f32, // width, height, _, _
-        meta: [4]f32, // inst_count, _, _, _
+        meta: [4]f32, // inst_count, debug_view, _, _
         inst_data0: [MaxRaymarchInstances][4]f32, // pos.xyz, scale
         inst_data1: [MaxRaymarchInstances][4]f32, // yaw_rad, shape_id, _, _
         inst_col: [MaxRaymarchInstances][4]f32, // rgba
@@ -272,7 +277,17 @@ const WindowsRenderer = struct {
             \\  float4 inst_col[64];
             \\};
             \\struct PSIn { float4 pos : SV_POSITION; float4 col : COLOR; };
-            \\struct Hit { float d; float4 col; };
+            \\struct Hit { float d; float4 col; float shape; };
+            \\float3 roleIdColor(float shape) {
+            \\  if (shape < 0.5) return float3(1.0, 0.34, 0.20);   // carry
+            \\  if (shape < 1.5) return float3(0.98, 0.78, 0.20);  // borrow
+            \\  if (shape < 2.5) return float3(0.22, 0.90, 1.0);   // shift
+            \\  if (shape < 3.5) return float3(0.60, 0.95, 0.48);  // source
+            \\  if (shape < 4.5) return float3(0.34, 0.72, 1.0);   // result
+            \\  if (shape < 5.5) return float3(0.98, 0.46, 0.88);  // partial row
+            \\  if (shape < 6.5) return float3(1.0, 1.0, 1.0);     // active
+            \\  return float3(0.30, 0.30, 0.30);                   // ground/other
+            \\}
             \\float sdSphere(float3 p, float s) { return length(p) - s; }
             \\float sdBox(float3 p, float3 b) {
             \\  float3 q = abs(p) - b;
@@ -292,7 +307,7 @@ const WindowsRenderer = struct {
             \\  return float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
             \\}
             \\Hit mapScene(float3 p) {
-            \\  Hit h; h.d = 1e9; h.col = float4(0,0,0,1);
+            \\  Hit h; h.d = 1e9; h.col = float4(0,0,0,1); h.shape = 7.0;
             \\  [loop]
             \\  for (uint i = 0; i < (uint)meta.x; ++i) {
             \\    float3 c = inst_data0[i].xyz;
@@ -344,12 +359,13 @@ const WindowsRenderer = struct {
             \\      float head = sdSphere(q - float3(0.0, 0.12 * scale, 0.0), 0.08 * scale);
             \\      d = opU(stem, head);
             \\    }
-            \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; }
+            \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; h.shape = shape; }
             \\  }
             \\  float ground = p.y + 0.72;
             \\  if (ground < h.d) {
             \\    h.d = ground;
             \\    h.col = float4(0.16, 0.15, 0.14, 1.0);
+            \\    h.shape = 7.0;
             \\  }
             \\  return h;
             \\}
@@ -397,6 +413,7 @@ const WindowsRenderer = struct {
             \\  float scene_extent = max(screen.z, 0.5);
             \\  float3 ro = -fwd * (scene_extent * (1.2 + (1.0 - cam.z) * 0.6));
             \\  float3 rd = normalize(fwd + uv.x * right + uv.y * up);
+            \\  float debug_view = meta.y;
             \\  float t = 0.0;
             \\  Hit h;
             \\  [loop]
@@ -404,6 +421,13 @@ const WindowsRenderer = struct {
             \\    float3 p = ro + rd * t;
             \\    h = mapScene(p);
             \\    if (h.d < 0.001) {
+            \\      if (debug_view > 0.5 && debug_view < 1.5) {
+            \\        float dep = saturate(t / (scene_extent * 3.5 + 0.001));
+            \\        return float4(dep, dep, dep, 1.0);
+            \\      }
+            \\      if (debug_view > 1.5) {
+            \\        return float4(roleIdColor(h.shape), 1.0);
+            \\      }
             \\      float3 n = estimateNormal(p);
             \\      float3 ldir = normalize(light_dir.xyz);
             \\      float diff = max(dot(n, ldir), 0.0);
@@ -416,6 +440,12 @@ const WindowsRenderer = struct {
             \\    }
             \\    t += h.d;
             \\    if (t > scene_extent * 10.0 + 20.0) break;
+            \\  }
+            \\  if (debug_view > 0.5 && debug_view < 1.5) {
+            \\    return float4(1.0, 1.0, 1.0, 1.0);
+            \\  }
+            \\  if (debug_view > 1.5) {
+            \\    return float4(0.0, 0.0, 0.0, 1.0);
             \\  }
             \\  float v = 0.4 + 0.6 * (1.0 - uv.y * 0.5);
             \\  return float4(0.04 * v, 0.05 * v, 0.08 * v, 1.0);
@@ -702,7 +732,7 @@ const WindowsRenderer = struct {
         };
     }
 
-    fn fillSceneCB(plan: render_plan.RenderPlan, width: u32, height: u32) SceneCB {
+    fn fillSceneCB(plan: render_plan.RenderPlan, width: u32, height: u32, view: RenderView) SceneCB {
         var cb = std.mem.zeroes(SceneCB);
 
         const yaw = plan.camera.yaw_deg * std.math.pi / 180.0;
@@ -714,6 +744,7 @@ const WindowsRenderer = struct {
 
         const count: usize = @min(plan.points.len, MaxRaymarchInstances);
         cb.meta[0] = @as(f32, @floatFromInt(count));
+        cb.meta[1] = @as(f32, @floatFromInt(@intFromEnum(view)));
 
         var cx: f32 = 0.0;
         var cy: f32 = 0.0;
@@ -923,7 +954,7 @@ const WindowsRenderer = struct {
         return vertices[0..n];
     }
 
-    pub fn render(self: *WindowsRenderer, width: u32, height: u32, plan: render_plan.RenderPlan, legend_text: []const u8) void {
+    pub fn render(self: *WindowsRenderer, width: u32, height: u32, plan: render_plan.RenderPlan, legend_text: []const u8, view: RenderView) void {
         @setRuntimeSafety(false);
         var rtvs = [_]?*c.ID3D11RenderTargetView{self.rtv};
         self.context.lpVtbl.*.OMSetRenderTargets.?(self.context, 1, &rtvs, null);
@@ -952,7 +983,7 @@ const WindowsRenderer = struct {
         const cbs = [_]?*c.ID3D11Buffer{self.scene_cb};
         self.context.lpVtbl.*.PSSetConstantBuffers.?(self.context, 0, 1, &cbs);
 
-        const cb_data = fillSceneCB(plan, width, height);
+        const cb_data = fillSceneCB(plan, width, height, view);
         var mapped_cb: c.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(c.D3D11_MAPPED_SUBRESOURCE);
         const hr_cb = self.context.lpVtbl.*.Map.?(
             self.context,

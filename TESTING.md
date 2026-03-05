@@ -540,6 +540,21 @@ zig build m4-debug-pack
 
 This writes a curated screenshot set and manifest to `/tmp/mtc_m4_debug_pack`.
 
+Shader debug-pass companion pack (depth + role IDs):
+
+```bash
+zig build m4-debug-pass-pack
+```
+
+This writes a curated screenshot set and manifest to `/tmp/mtc_m4_debug_pass_pack`.
+
+To baseline and verify deterministic debug-pass outputs:
+
+```bash
+zig build rebaseline-m4-debug-pass
+zig build test-m4-debug-pass
+```
+
 This prevents visual tests from slowing down everyday iteration too much.
 
 ---
