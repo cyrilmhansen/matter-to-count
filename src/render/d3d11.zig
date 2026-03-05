@@ -302,23 +302,47 @@ const WindowsRenderer = struct {
             \\    float3 q = rotY(p - c, yaw);
             \\    float d = 1e9;
             \\    if (shape < 0.5) {
-            \\      float core = sdSphere(q, 0.23 * scale);
-            \\      float ring = sdTorus(q + float3(0.0, 0.04 * scale, 0.0), float2(0.26 * scale, 0.04 * scale));
-            \\      d = opU(core, ring);
+            \\      // carry packet: core orb + orbit ring + directional fin
+            \\      float core = sdSphere(q, 0.20 * scale);
+            \\      float ring = sdTorus(q + float3(0.0, 0.03 * scale, 0.0), float2(0.24 * scale, 0.04 * scale));
+            \\      float fin = sdBox(q - float3(0.0, 0.0, 0.22 * scale), float3(0.07, 0.03, 0.12) * scale);
+            \\      d = opU(opU(core, ring), fin);
             \\    } else if (shape < 1.5) {
-            \\      float stem = sdCapsuleY(q, 0.24 * scale, 0.10 * scale);
-            \\      float crown = sdBox(q - float3(0.0, 0.30 * scale, 0.0), float3(0.18, 0.06, 0.18) * scale);
-            \\      d = opU(stem, crown);
+            \\      // borrow packet: denser knot, lower center of mass
+            \\      float knot = sdBox(q, float3(0.13, 0.13, 0.13) * scale);
+            \\      float side_a = sdSphere(q + float3(0.15 * scale, -0.02 * scale, 0.0), 0.09 * scale);
+            \\      float side_b = sdSphere(q + float3(-0.15 * scale, -0.02 * scale, 0.0), 0.09 * scale);
+            \\      float bridge = sdCapsuleY(q + float3(0.0, -0.04 * scale, 0.0), 0.08 * scale, 0.05 * scale);
+            \\      d = opU(opU(knot, side_a), opU(side_b, bridge));
             \\    } else if (shape < 2.5) {
-            \\      float block = sdBox(q, float3(0.20, 0.20, 0.20) * scale);
-            \\      float pearl = sdSphere(q + float3(0.0, 0.28 * scale, 0.0), 0.10 * scale);
-            \\      d = opU(block, pearl);
+            \\      // shift packet: directional capsule with trailing torus
+            \\      float body = sdCapsuleY(q, 0.22 * scale, 0.08 * scale);
+            \\      float nose = sdSphere(q - float3(0.0, 0.0, 0.22 * scale), 0.10 * scale);
+            \\      float wake = sdTorus(q + float3(0.0, 0.0, 0.24 * scale), float2(0.12 * scale, 0.03 * scale));
+            \\      d = opU(opU(body, nose), wake);
             \\    } else if (shape < 3.5) {
-            \\      float ring = sdTorus(q, float2(0.24 * scale, 0.06 * scale));
-            \\      float bar = sdBox(q, float3(0.32, 0.02, 0.06) * scale);
-            \\      d = opU(ring, bar);
+            \\      // source digit column: pedestal + stem + cap
+            \\      float pedestal = sdBox(q + float3(0.0, 0.18 * scale, 0.0), float3(0.20, 0.07, 0.20) * scale);
+            \\      float stem = sdBox(q - float3(0.0, 0.02 * scale, 0.0), float3(0.11, 0.22, 0.11) * scale);
+            \\      float cap = sdTorus(q - float3(0.0, 0.30 * scale, 0.0), float2(0.14 * scale, 0.03 * scale));
+            \\      d = opU(opU(pedestal, stem), cap);
+            \\    } else if (shape < 4.5) {
+            \\      // result digit column: broader settled shape + crown pearl
+            \\      float body = sdBox(q, float3(0.20, 0.18, 0.20) * scale);
+            \\      float crown = sdSphere(q - float3(0.0, 0.26 * scale, 0.0), 0.09 * scale);
+            \\      float collar = sdTorus(q - float3(0.0, 0.15 * scale, 0.0), float2(0.18 * scale, 0.025 * scale));
+            \\      d = opU(opU(body, crown), collar);
+            \\    } else if (shape < 5.5) {
+            \\      // partial row marker: ribbon with rounded end-caps
+            \\      float ribbon = sdBox(q, float3(0.34, 0.03, 0.08) * scale);
+            \\      float cap_a = sdSphere(q + float3(0.34 * scale, 0.0, 0.0), 0.055 * scale);
+            \\      float cap_b = sdSphere(q - float3(0.34 * scale, 0.0, 0.0), 0.055 * scale);
+            \\      d = opU(opU(ribbon, cap_a), cap_b);
             \\    } else {
-            \\      d = sdSphere(q, 0.14 * scale);
+            \\      // active marker: compact beacon
+            \\      float stem = sdCapsuleY(q + float3(0.0, 0.05 * scale, 0.0), 0.11 * scale, 0.045 * scale);
+            \\      float head = sdSphere(q - float3(0.0, 0.12 * scale, 0.0), 0.08 * scale);
+            \\      d = opU(stem, head);
             \\    }
             \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; }
             \\  }
@@ -668,11 +692,13 @@ const WindowsRenderer = struct {
 
     fn shapeIdForRole(role: render_plan.DrawRole) f32 {
         return switch (role) {
-            .carry_packet, .borrow_packet, .shift_packet => 0.0, // sphere
-            .source_digit => 1.0,
-            .result_digit => 2.0,
-            .partial_row_marker => 3.0,
-            .active_marker => 4.0,
+            .carry_packet => 0.0,
+            .borrow_packet => 1.0,
+            .shift_packet => 2.0,
+            .source_digit => 3.0,
+            .result_digit => 4.0,
+            .partial_row_marker => 5.0,
+            .active_marker => 6.0,
         };
     }
 

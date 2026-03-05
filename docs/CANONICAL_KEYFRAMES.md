@@ -43,5 +43,7 @@ zig build test-raymarch-keyframes
 Current curated set:
 
 1. `add_mid_cine`
-2. `mul_mid_cine`
-3. `mul_final_story`
+2. `sub_mid_story`
+3. `shift_mid_cine`
+4. `mul_mid_cine`
+5. `mul_final_story`

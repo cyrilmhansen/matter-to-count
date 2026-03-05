@@ -47,9 +47,13 @@ capture_one() {
 
 # frame mapping: tick_count=5, phase_frames=30
 # add_mid: tick0 phase0.5 => frame 15
+# sub_mid: tick1 phase0.4 => frame 42
+# shift_mid: tick0 phase0.5 => frame 15
 # mul_mid: tick2 phase0.5 => frame 75
 # mul_final-ish: tick4 phase29/30 => frame 149
 capture_one "add_mid_cine" "add" "cinematic" 16
+capture_one "sub_mid_story" "sub" "storyboard" 43
+capture_one "shift_mid_cine" "shift" "cinematic" 16
 capture_one "mul_mid_cine" "mul" "cinematic" 76
 capture_one "mul_final_story" "mul" "storyboard" 150
 

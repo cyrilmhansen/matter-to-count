@@ -21,6 +21,8 @@ uniq_of() {
   echo "# Re-generate with: scripts/rebaseline_raymarch_keyframes.sh"
   echo "# Format: id sha256 unique_colors_min"
   echo "add_mid_cine $(hash_of add_mid_cine) $(uniq_of add_mid_cine)"
+  echo "sub_mid_story $(hash_of sub_mid_story) $(uniq_of sub_mid_story)"
+  echo "shift_mid_cine $(hash_of shift_mid_cine) $(uniq_of shift_mid_cine)"
   echo "mul_mid_cine $(hash_of mul_mid_cine) $(uniq_of mul_mid_cine)"
   echo "mul_final_story $(hash_of mul_final_story) $(uniq_of mul_final_story)"
 } > "${BASELINE_FILE}"

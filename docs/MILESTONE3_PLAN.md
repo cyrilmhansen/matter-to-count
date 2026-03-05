@@ -154,12 +154,11 @@ Completed:
   - baselines in `docs/RAYMARCH_KEYFRAME_BASELINES.txt`.
 
 In progress:
-- Expand scene modeling richness per role group (multi-part column forms, stronger packet shape language).
+- Promote milestone status docs/tests to a final M3 acceptance report.
 
 Next:
-1. Increase role-specific SDF composition depth while preserving deterministic snapshots.
-2. Add a second curated raymarch keyframe set focused on subtraction/shift readability in 3D.
-3. Promote milestone status docs/tests to a final M3 acceptance report.
+1. Finalize M3 acceptance/status document with current deterministic test evidence.
+2. Run manual visual review pass for the curated 3D keyframes and note any art-direction deltas for M4.
 
 ---
 
@@ -194,4 +193,4 @@ Risk: too much change in one patch.
 
 ## Immediate Next Task
 
-Increase role-specific 3D form richness (columns/packets/markers) and lock it with one additional deterministic raymarch keyframe regression sample.
+Publish the M3 acceptance/status checklist with evidence links (tests, smoke, and raymarch keyframe regression outputs), then close the milestone.
