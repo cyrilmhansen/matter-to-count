@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
-const d3d_c = @import("d3d_c.zig");
-const c = d3d_c.c;
+const win = @import("win_types.zig");
 const win32 = @import("window.zig");
 
 // Minimal manual COM declaration used to avoid depending on dxgi1_2.h for the
@@ -9,9 +8,9 @@ pub const IDXGIFactory2 = if (builtin.os.tag == .windows) extern struct {
     lpVtbl: *const VTable,
 
     pub const VTable = extern struct {
-        QueryInterface: *const fn (self: *IDXGIFactory2, riid: *const c.GUID, out: *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: *const fn (self: *IDXGIFactory2) callconv(.winapi) c.UINT,
-        Release: *const fn (self: *IDXGIFactory2) callconv(.winapi) c.UINT,
+        QueryInterface: *const fn (self: *IDXGIFactory2, riid: *const win.GUID, out: *?*anyopaque) callconv(.winapi) win.HRESULT,
+        AddRef: *const fn (self: *IDXGIFactory2) callconv(.winapi) win.UINT,
+        Release: *const fn (self: *IDXGIFactory2) callconv(.winapi) win.UINT,
 
         // IDXGIObject
         SetPrivateData: *const anyopaque,
@@ -31,43 +30,60 @@ pub const IDXGIFactory2 = if (builtin.os.tag == .windows) extern struct {
         IsCurrent: *const anyopaque,
 
         // IDXGIFactory2
-        IsWindowedStereoEnabled: *const fn (self: *IDXGIFactory2) callconv(.winapi) c.BOOL,
+        IsWindowedStereoEnabled: *const fn (self: *IDXGIFactory2) callconv(.winapi) win.BOOL,
     };
 } else struct {};
 
+pub const DXGI_FORMAT = u32;
+pub const DXGI_FORMAT_UNKNOWN: DXGI_FORMAT = 0;
+pub const DXGI_FORMAT_R32G32B32A32_FLOAT: DXGI_FORMAT = 2;
+pub const DXGI_FORMAT_R32G32B32_FLOAT: DXGI_FORMAT = 6;
+pub const DXGI_FORMAT_R8G8B8A8_UNORM: DXGI_FORMAT = 28;
+
+pub const DXGI_MODE_SCANLINE_ORDER = u32;
+pub const DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED: DXGI_MODE_SCANLINE_ORDER = 0;
+
+pub const DXGI_MODE_SCALING = u32;
+pub const DXGI_MODE_SCALING_UNSPECIFIED: DXGI_MODE_SCALING = 0;
+
+pub const DXGI_SWAP_EFFECT = u32;
+pub const DXGI_SWAP_EFFECT_DISCARD: DXGI_SWAP_EFFECT = 0;
+
+pub const DXGI_USAGE_RENDER_TARGET_OUTPUT: win.UINT = 0x00000020;
+
 // Minimal manual DXGI structs for swap-chain creation.
 pub const DXGI_RATIONAL = if (builtin.os.tag == .windows) extern struct {
-    Numerator: c.UINT,
-    Denominator: c.UINT,
+    Numerator: win.UINT,
+    Denominator: win.UINT,
 } else struct {};
 
 pub const DXGI_MODE_DESC = if (builtin.os.tag == .windows) extern struct {
-    Width: c.UINT,
-    Height: c.UINT,
+    Width: win.UINT,
+    Height: win.UINT,
     RefreshRate: DXGI_RATIONAL,
-    Format: c.DXGI_FORMAT,
-    ScanlineOrdering: c.DXGI_MODE_SCANLINE_ORDER,
-    Scaling: c.DXGI_MODE_SCALING,
+    Format: DXGI_FORMAT,
+    ScanlineOrdering: DXGI_MODE_SCANLINE_ORDER,
+    Scaling: DXGI_MODE_SCALING,
 } else struct {};
 
 pub const DXGI_SAMPLE_DESC = if (builtin.os.tag == .windows) extern struct {
-    Count: c.UINT,
-    Quality: c.UINT,
+    Count: win.UINT,
+    Quality: win.UINT,
 } else struct {};
 
 pub const DXGI_SWAP_CHAIN_DESC = if (builtin.os.tag == .windows) extern struct {
     BufferDesc: DXGI_MODE_DESC,
     SampleDesc: DXGI_SAMPLE_DESC,
-    BufferUsage: c.UINT,
-    BufferCount: c.UINT,
-    OutputWindow: c.HWND,
-    Windowed: c.BOOL,
-    SwapEffect: c.DXGI_SWAP_EFFECT,
-    Flags: c.UINT,
+    BufferUsage: win.UINT,
+    BufferCount: win.UINT,
+    OutputWindow: win.HWND,
+    Windowed: win.BOOL,
+    SwapEffect: DXGI_SWAP_EFFECT,
+    Flags: win.UINT,
 } else struct {};
 
-fn asCHwnd(hwnd: win32.HWND) c.HWND {
-    return @ptrFromInt(@intFromPtr(hwnd.?));
+fn asCHwnd(hwnd: win32.HWND) win.HWND {
+    return hwnd;
 }
 
 pub fn makeSwapChainDesc(hwnd: win32.HWND, width: u32, height: u32) DXGI_SWAP_CHAIN_DESC {
@@ -76,19 +92,19 @@ pub fn makeSwapChainDesc(hwnd: win32.HWND, width: u32, height: u32) DXGI_SWAP_CH
             .Width = width,
             .Height = height,
             .RefreshRate = .{ .Numerator = 60, .Denominator = 1 },
-            .Format = c.DXGI_FORMAT_R8G8B8A8_UNORM,
-            .ScanlineOrdering = c.DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
-            .Scaling = c.DXGI_MODE_SCALING_UNSPECIFIED,
+            .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+            .ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
+            .Scaling = DXGI_MODE_SCALING_UNSPECIFIED,
         },
         .SampleDesc = .{
             .Count = 1,
             .Quality = 0,
         },
-        .BufferUsage = c.DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
         .BufferCount = 1,
         .OutputWindow = asCHwnd(hwnd),
-        .Windowed = c.TRUE,
-        .SwapEffect = c.DXGI_SWAP_EFFECT_DISCARD,
+        .Windowed = win.TRUE,
+        .SwapEffect = DXGI_SWAP_EFFECT_DISCARD,
         .Flags = 0,
     };
 }

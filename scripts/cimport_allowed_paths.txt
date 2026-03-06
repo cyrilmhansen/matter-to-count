@@ -1,1 +1,1 @@
-src/platform/win32/d3d_c.zig
+# Intentionally empty: project should not use @cImport.

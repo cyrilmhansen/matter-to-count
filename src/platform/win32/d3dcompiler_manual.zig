@@ -1,14 +1,13 @@
 const builtin = @import("builtin");
-const d3d_c = @import("d3d_c.zig");
-const c = d3d_c.c;
+const win = @import("win_types.zig");
 
 pub const ID3DBlob = if (builtin.os.tag == .windows) extern struct {
     lpVtbl: *const VTable,
 
     pub const VTable = extern struct {
-        QueryInterface: *const fn (self: *ID3DBlob, riid: *const c.GUID, out: *?*anyopaque) callconv(.winapi) c.HRESULT,
-        AddRef: *const fn (self: *ID3DBlob) callconv(.winapi) c.UINT,
-        Release: *const fn (self: *ID3DBlob) callconv(.winapi) c.UINT,
+        QueryInterface: *const fn (self: *ID3DBlob, riid: *const win.GUID, out: *?*anyopaque) callconv(.winapi) win.HRESULT,
+        AddRef: *const fn (self: *ID3DBlob) callconv(.winapi) win.UINT,
+        Release: *const fn (self: *ID3DBlob) callconv(.winapi) win.UINT,
         GetBufferPointer: *const fn (self: *ID3DBlob) callconv(.winapi) *anyopaque,
         GetBufferSize: *const fn (self: *ID3DBlob) callconv(.winapi) usize,
     };
@@ -22,11 +21,11 @@ extern "d3dcompiler_47" fn D3DCompile(
     include: ?*const anyopaque,
     entrypoint: [*:0]const u8,
     target: [*:0]const u8,
-    flags1: c.UINT,
-    flags2: c.UINT,
+    flags1: win.UINT,
+    flags2: win.UINT,
     code: *?*ID3DBlob,
     error_msgs: *?*ID3DBlob,
-) callconv(.winapi) c.HRESULT;
+) callconv(.winapi) win.HRESULT;
 
 pub fn compile(
     source: []const u8,
@@ -34,7 +33,7 @@ pub fn compile(
     target: [*:0]const u8,
     code: *?*ID3DBlob,
     errors: *?*ID3DBlob,
-) c.HRESULT {
+) win.HRESULT {
     return D3DCompile(
         source.ptr,
         source.len,
@@ -49,4 +48,3 @@ pub fn compile(
         errors,
     );
 }
-

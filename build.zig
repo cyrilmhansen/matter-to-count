@@ -61,7 +61,6 @@ pub fn build(b: *std.Build) void {
         .name = "matter-to-count-win64",
         .root_module = win64_mod,
     });
-    exe_win64.linkLibC();
     exe_win64.linkSystemLibrary("user32");
     exe_win64.linkSystemLibrary("kernel32");
     exe_win64.linkSystemLibrary("d3d11");

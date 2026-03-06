@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
-const d3d_c = @import("d3d_c.zig");
-const c = d3d_c.c;
+const win = @import("win_types.zig");
 
 pub const windows = builtin.os.tag == .windows;
 
@@ -9,7 +8,7 @@ fn guid(
     data2: u16,
     data3: u16,
     data4: [8]u8,
-) c.GUID {
+) win.GUID {
     return .{
         .Data1 = data1,
         .Data2 = data2,
@@ -33,4 +32,3 @@ pub const IID_ID3D11Texture2D = if (windows)
     guid(0x6f15aaf2, 0xd208, 0x4e89, .{ 0x9a, 0xb4, 0x48, 0x95, 0x35, 0xd3, 0x4f, 0x9c })
 else
     struct {};
-

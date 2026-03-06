@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
-const d3d_c = @import("d3d_c.zig");
 const dxgi_manual = @import("dxgi_manual.zig");
-const c = d3d_c.c;
+const win = @import("win_types.zig");
 
 pub const D3D11_USAGE_DEFAULT: u32 = 0;
 pub const D3D11_USAGE_DYNAMIC: u32 = 2;
@@ -20,47 +19,47 @@ pub const D3D11_INPUT_PER_VERTEX_DATA: u32 = 0;
 pub const D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST: u32 = 4;
 
 pub const D3D11_TEXTURE2D_DESC = if (builtin.os.tag == .windows) extern struct {
-    Width: c.UINT,
-    Height: c.UINT,
-    MipLevels: c.UINT,
-    ArraySize: c.UINT,
-    Format: c.DXGI_FORMAT,
+    Width: win.UINT,
+    Height: win.UINT,
+    MipLevels: win.UINT,
+    ArraySize: win.UINT,
+    Format: dxgi_manual.DXGI_FORMAT,
     SampleDesc: dxgi_manual.DXGI_SAMPLE_DESC,
-    Usage: c.UINT,
-    BindFlags: c.UINT,
-    CPUAccessFlags: c.UINT,
-    MiscFlags: c.UINT,
+    Usage: win.UINT,
+    BindFlags: win.UINT,
+    CPUAccessFlags: win.UINT,
+    MiscFlags: win.UINT,
 } else struct {};
 
 pub const D3D11_SUBRESOURCE_DATA = if (builtin.os.tag == .windows) extern struct {
     pSysMem: *const anyopaque,
-    SysMemPitch: c.UINT,
-    SysMemSlicePitch: c.UINT,
+    SysMemPitch: win.UINT,
+    SysMemSlicePitch: win.UINT,
 } else struct {};
 
 pub const D3D11_BUFFER_DESC = if (builtin.os.tag == .windows) extern struct {
-    ByteWidth: c.UINT,
-    Usage: c.UINT,
-    BindFlags: c.UINT,
-    CPUAccessFlags: c.UINT,
-    MiscFlags: c.UINT,
-    StructureByteStride: c.UINT,
+    ByteWidth: win.UINT,
+    Usage: win.UINT,
+    BindFlags: win.UINT,
+    CPUAccessFlags: win.UINT,
+    MiscFlags: win.UINT,
+    StructureByteStride: win.UINT,
 } else struct {};
 
 pub const D3D11_MAPPED_SUBRESOURCE = if (builtin.os.tag == .windows) extern struct {
     pData: ?*anyopaque,
-    RowPitch: c.UINT,
-    DepthPitch: c.UINT,
+    RowPitch: win.UINT,
+    DepthPitch: win.UINT,
 } else struct {};
 
 pub const D3D11_INPUT_ELEMENT_DESC = if (builtin.os.tag == .windows) extern struct {
     SemanticName: [*c]const u8,
-    SemanticIndex: c.UINT,
-    Format: c.DXGI_FORMAT,
-    InputSlot: c.UINT,
-    AlignedByteOffset: c.UINT,
-    InputSlotClass: c.UINT,
-    InstanceDataStepRate: c.UINT,
+    SemanticIndex: win.UINT,
+    Format: dxgi_manual.DXGI_FORMAT,
+    InputSlot: win.UINT,
+    AlignedByteOffset: win.UINT,
+    InputSlotClass: win.UINT,
+    InstanceDataStepRate: win.UINT,
 } else struct {};
 
 pub const D3D11_VIEWPORT = if (builtin.os.tag == .windows) extern struct {
