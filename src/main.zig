@@ -134,4 +134,5 @@ test {
     _ = @import("events/tape.zig");
     _ = @import("choreo/easing.zig");
     _ = @import("choreo/motion.zig");
+    _ = @import("platform/win32/d3d_c.zig");
 }

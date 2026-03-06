@@ -1,16 +1,10 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
+const d3d_c = @import("../platform/win32/d3d_c.zig");
 const log = @import("../util/logging.zig");
 const render_plan = @import("render_plan.zig");
-
-const c = if (builtin.os.tag == .windows) @cImport({
-    @cInclude("windows.h");
-    @cInclude("d3d11.h");
-    @cInclude("dxgi.h");
-    @cInclude("dxgi1_2.h");
-    @cInclude("d3dcompiler.h");
-}) else struct {};
+const c = d3d_c.c;
 
 pub const Renderer = if (builtin.os.tag == .windows) WindowsRenderer else StubRenderer;
 pub const RenderView = enum(u32) {
