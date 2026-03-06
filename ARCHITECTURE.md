@@ -284,6 +284,79 @@ Example carry motion:
 * `X(p) = lerp(src_col, dst_col, easeOutCubic(p))`
 * `Y(p) = baseline_y + max_height * sin(p * pi)`
 
+#### 6.3.2. The Written Arithmetic Spatial Contract
+
+When the demo stages arithmetic as written work on paper, row and column placement is part of the choreography contract rather than an implementation convenience.
+
+Rules:
+
+* `column_index = 0` is always the least-significant arithmetic column.
+* The choreography layer must define a canonical column map such as `X(c) = origin_x + c * column_pitch`.
+* If a theme wants a mirrored schoolbook view with units on the right, that mirror must be applied as a presentation transform to the whole layout. It must not redefine event or arithmetic semantics.
+* Rows must be explicit semantic bands, not ad hoc `y += 0.5` offsets.
+* Every arithmetic row must have both a `row_index` and a `row_kind`.
+
+Canonical row kinds:
+
+* `carry`
+* `operand_primary`
+* `operand_secondary`
+* `result`
+* `partial_product`
+* `borrow_reserve`
+* `annotation`
+
+Each written-arithmetic layout preset must define:
+
+* a monotonic `Y(row_index)` mapping;
+* the anchor for a digit cell;
+* the anchor for transfer lanes such as carry and borrow;
+* the separator line or guide rail positions when the operation uses schoolbook rows.
+
+Using another row on paper is therefore a semantic decision: allocate a new `row_index` with a declared `row_kind` and explicit anchors. It must never be represented only as a renderer-side depth tweak.
+
+#### 6.3.3. Decimal Addition Staging Contract
+
+For schoolbook base-10 addition, the default row order is:
+
+1. carry row
+2. upper operand row (`lhs`)
+3. lower operand row (`rhs`)
+4. result row
+
+The addition choreography must obey the following rules:
+
+* Every visible digit is represented as one stable entity per `(row_index, column_index)` cell.
+* Operand digits settle into their cells before the arithmetic transformation beat begins.
+* The active column highlight always refers to one logical column across all participating rows.
+* The result digit for a processed column settles in the result row of that same column.
+* If overflow occurs, the carry must be represented by a transient carry entity with a stable identity from `carry_emit` until `carry_receive`.
+* The carry launches from the source column carry anchor, travels through a dedicated carry lane, and lands at the destination column carry anchor before disappearing.
+* The receiving column may highlight early, but its settled value must not silently jump before the carry arrival beat.
+* Cascade carries must be staged as distinct transfers. They may overlap slightly in timing, but they must remain countable as separate packets.
+
+The intended beat order for a single carry column is:
+
+1. column activates
+2. local sum compresses
+3. source remainder settles in the result row
+4. carry packet emits
+5. carry packet lands in the next column
+6. destination column settles
+7. emphasis releases
+
+#### 6.3.4. Multi-Row Operations and Paper Expansion
+
+Operations that use extra rows, such as long multiplication, must allocate them formally.
+
+Rules:
+
+* Each partial-product row gets its own `row_index` and stays aligned to the same shared column grid as the main operands.
+* A shift in multiplication is represented by the row's starting column offset, not by detaching the row from the common grid.
+* The final accumulation row is distinct from the temporary partial-product rows.
+* Row creation and row completion should be reflected in the event tape, not inferred only from current visibility.
+* Camera framing must react to row count through a layout-aware rule rather than scene-local magic numbers.
+
 ---
 
 ## 6.4. Scene layer
@@ -470,6 +543,22 @@ It is part of the teaching logic.
 * the final composition of each keyframe should be deliberately authored.
 
 A visually dramatic camera that obscures the operation is a failure of the system.
+
+### Runtime framing stability contract
+
+For real-time playback, framing must remain stable even when transient entities appear or disappear.
+
+Rules:
+
+* framing center/extent must be computed from stable semantic entities first (operand/result rows, structural markers);
+* volatile helper entities must not drive framing (`active_marker`, token overlays, temporary transfer packets);
+* framing should be temporally smoothed rather than hard-snapped each frame;
+* storyboard mode favors legibility and stability over aggressive cinematic reframing.
+
+Debugging guidance:
+
+* `MTC_TRACE_ANIM=1` should emit `tick`, `phase`, transit count, and render point count;
+* if animation trace advances but visuals still look unstable, classify as renderer/presentation issue before changing arithmetic/choreography logic.
 
 ---
 
@@ -989,6 +1078,7 @@ This identifies the logical target of an event.
 SemanticRef
 - column_index: ?u16
 - row_index: ?u16
+- row_kind: ?PaperRowKind
 - digit_index: ?u16
 - group_id: ?u32
 ```
@@ -1073,6 +1163,43 @@ ChoreographyPlan
 
 The choreography plan should be reproducible from the event tape and a chosen theme or staging preset.
 
+### PaperRowKind
+
+```text
+PaperRowKind
+- carry
+- operand_primary
+- operand_secondary
+- result
+- partial_product
+- borrow_reserve
+- annotation
+```
+
+### LayoutAnchorKind
+
+```text
+LayoutAnchorKind
+- digit_center
+- carry_lane
+- borrow_lane
+- row_guide
+```
+
+### WrittenArithmeticLayout
+
+```text
+WrittenArithmeticLayout
+- origin: Vec3
+- column_pitch: f32
+- row_pitch: f32
+- row_kinds: []PaperRowKind
+- cell_anchor(row_index: u16, column_index: u16) -> Vec3
+- transfer_anchor(kind: LayoutAnchorKind, row_index: u16, column_index: u16) -> Vec3
+```
+
+This structure exists so row allocation, column positions, and transfer lanes are authored as data rather than guessed in scene builders.
+
 ---
 
 ## 18.4. Scene model
@@ -1126,9 +1253,17 @@ This links visual objects back to mathematical meaning.
 ```text
 SemanticTag
 - column_index: ?u16
+- row_index: ?u16
+- row_kind: ?PaperRowKind
 - digit_value: ?u8
 - role: SemanticRole
 ```
+
+For written arithmetic scenes, row metadata should be preserved all the way into the scene state so automated tests can distinguish:
+
+* the upper operand row from the result row;
+* a carry row from a partial-product row;
+* a temporary scratch row from a stable final row.
 
 ### SceneEntity
 

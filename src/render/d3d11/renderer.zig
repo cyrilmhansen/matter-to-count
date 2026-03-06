@@ -66,6 +66,10 @@ const WindowsRenderer = struct {
     vertex_buffer: *d3d11_if.ID3D11Buffer,
     scene_cb: *d3d11_if.ID3D11Buffer,
     display_3d_active: bool,
+    instance_cap_warned: bool,
+    framing_initialized: bool,
+    frame_center: [3]f32,
+    frame_extent: f32,
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
@@ -168,6 +172,10 @@ const WindowsRenderer = struct {
             .vertex_buffer = tri.vertex_buffer,
             .scene_cb = tri.scene_cb,
             .display_3d_active = false,
+            .instance_cap_warned = false,
+            .framing_initialized = false,
+            .frame_center = .{ 0.0, 0.0, 0.0 },
+            .frame_extent = 1.0,
         };
     }
 
@@ -579,14 +587,24 @@ const WindowsRenderer = struct {
             .carry_packet => 0.0,
             .borrow_packet => 1.0,
             .shift_packet => 2.0,
-            .source_digit => 3.0,
+            .operand_primary_digit => 3.0,
+            .operand_secondary_digit => 3.0,
             .result_digit => 4.0,
             .partial_row_marker => 5.0,
             .active_marker => 6.0,
+            .base_bundle_token => 5.0,
         };
     }
 
-    fn fillSceneCB(plan: render_plan.RenderPlan, width: u32, height: u32, view: RenderView) SceneCB {
+    fn contributesToFraming(role: render_plan.DrawRole) bool {
+        return switch (role) {
+            .carry_packet, .borrow_packet, .shift_packet => false,
+            .active_marker, .base_bundle_token => false,
+            else => true,
+        };
+    }
+
+    fn fillSceneCB(self: *WindowsRenderer, plan: render_plan.RenderPlan, width: u32, height: u32, view: RenderView) SceneCB {
         var cb = std.mem.zeroes(SceneCB);
 
         const yaw = plan.camera.yaw_deg * std.math.pi / 180.0;
@@ -603,13 +621,17 @@ const WindowsRenderer = struct {
         var cx: f32 = 0.0;
         var cy: f32 = 0.0;
         var cz: f32 = 0.0;
+        var frame_count: usize = 0;
         if (count > 0) {
             for (plan.points[0..count]) |p| {
+                if (!contributesToFraming(p.role)) continue;
                 cx += p.x;
                 cy += p.y;
                 cz += p.z;
+                frame_count += 1;
             }
-            const inv = 1.0 / @as(f32, @floatFromInt(count));
+            const used = if (frame_count > 0) frame_count else count;
+            const inv = 1.0 / @as(f32, @floatFromInt(used));
             cx *= inv;
             cy *= inv;
             cz *= inv;
@@ -619,6 +641,7 @@ const WindowsRenderer = struct {
         if (count > 0) {
             extent = 0.0;
             for (plan.points[0..count]) |p| {
+                if (!contributesToFraming(p.role)) continue;
                 const dx = p.x - cx;
                 const dy = p.y - cy;
                 const dz = p.z - cz;
@@ -627,10 +650,26 @@ const WindowsRenderer = struct {
             }
             extent = @max(extent, 0.6);
         }
-        cb.screen[2] = extent;
+        if (!self.framing_initialized) {
+            self.framing_initialized = true;
+            self.frame_center = .{ cx, cy, cz };
+            self.frame_extent = extent;
+        } else {
+            const alpha: f32 = 0.15;
+            self.frame_center[0] += (cx - self.frame_center[0]) * alpha;
+            self.frame_center[1] += (cy - self.frame_center[1]) * alpha;
+            self.frame_center[2] += (cz - self.frame_center[2]) * alpha;
+            self.frame_extent += (extent - self.frame_extent) * alpha;
+        }
+        cb.screen[2] = self.frame_extent;
 
         for (plan.points[0..count], 0..) |p, i| {
-            cb.inst_data0[i] = .{ p.x - cx, p.y - cy, p.z - cz, p.scale };
+            cb.inst_data0[i] = .{
+                p.x - self.frame_center[0],
+                p.y - self.frame_center[1],
+                p.z - self.frame_center[2],
+                p.scale,
+            };
             cb.inst_data1[i] = .{ p.yaw_deg * std.math.pi / 180.0, shapeIdForRole(p.role), 0.0, 0.0 };
             cb.inst_col[i] = .{ p.r, p.g, p.b, p.a };
         }
@@ -640,6 +679,13 @@ const WindowsRenderer = struct {
 
     pub fn render(self: *WindowsRenderer, width: u32, height: u32, plan: render_plan.RenderPlan, legend_text: []const u8, view: RenderView) void {
         @setRuntimeSafety(false);
+        if (plan.points.len > MaxRaymarchInstances and !self.instance_cap_warned) {
+            self.instance_cap_warned = true;
+            log.err(
+                "render instance cap hit: plan_points={d} cap={d} (extra points are dropped)",
+                .{ plan.points.len, MaxRaymarchInstances },
+            );
+        }
         var rtvs = [_]?*d3d11_if.ID3D11RenderTargetView{self.rtv};
         self.context.lpVtbl.*.OMSetRenderTargets.?(self.context, 1, &rtvs, null);
 
@@ -667,7 +713,7 @@ const WindowsRenderer = struct {
         const cbs = [_]?*d3d11_if.ID3D11Buffer{self.scene_cb};
         self.context.lpVtbl.*.PSSetConstantBuffers.?(self.context, 0, 1, &cbs);
 
-        const cb_data = fillSceneCB(plan, width, height, view);
+        const cb_data = fillSceneCB(self, plan, width, height, view);
         var mapped_cb: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
         const hr_cb = self.context.lpVtbl.*.Map.?(
             self.context,

@@ -16,7 +16,8 @@ pub const EmissiveClass = enum {
 };
 
 pub const EntityRole = enum {
-    source_digit,
+    operand_primary_digit,
+    operand_secondary_digit,
     result_digit,
     carry_packet,
     borrow_packet,
@@ -24,9 +25,21 @@ pub const EntityRole = enum {
     partial_row_marker,
 };
 
+pub const PaperRowKind = enum {
+    carry,
+    operand_primary,
+    operand_secondary,
+    result,
+    partial_product,
+    borrow_reserve,
+    annotation,
+};
+
 pub const Entity = struct {
     id: u32,
     role: EntityRole,
+    row_kind: PaperRowKind,
+    row_index: u16,
     column: u16,
     value: u16,
     visible: bool,
@@ -187,6 +200,50 @@ fn packetProgress(start_substep: u16, phase: f32) f32 {
     return clampPhase((p - start) / window);
 }
 
+fn choreoProfileForCamera(mode: CameraMode) motion.ChoreoProfile {
+    return switch (mode) {
+        .storyboard => motion.storyboardProfile(),
+        .cinematic => motion.cinematicProfile(),
+        .debug => motion.debugProfile(),
+    };
+}
+
+fn packetProgressForRole(role: EntityRole, start_substep: u16, phase: f32, profile: motion.ChoreoProfile) f32 {
+    const base = packetProgress(start_substep, phase);
+    const rate = switch (role) {
+        .carry_packet => profile.carry_rate,
+        .borrow_packet => profile.borrow_rate,
+        .shift_packet => profile.shift_rate,
+        else => 1.0,
+    };
+    return clampPhase(base * rate);
+}
+
+fn rowForRole(
+    role: EntityRole,
+    column: u16,
+    value: u16,
+    profile: CameraProfile,
+    active_partial_row: ?u16,
+) struct { row_kind: PaperRowKind, row_index: u16 } {
+    _ = value;
+    return switch (role) {
+        .operand_primary_digit => .{ .row_kind = .operand_primary, .row_index = 1 },
+        .operand_secondary_digit => .{ .row_kind = .operand_secondary, .row_index = 2 },
+        .result_digit => .{ .row_kind = .result, .row_index = 3 },
+        .carry_packet => if (profile == .mul and active_partial_row != null)
+            .{
+                .row_kind = .partial_product,
+                .row_index = @as(u16, @intCast(4 + active_partial_row.?)),
+            }
+        else
+            .{ .row_kind = .carry, .row_index = 0 },
+        .borrow_packet => .{ .row_kind = .borrow_reserve, .row_index = 0 },
+        .shift_packet => .{ .row_kind = .annotation, .row_index = 1 },
+        .partial_row_marker => .{ .row_kind = .partial_product, .row_index = @as(u16, @intCast(4 + column)) },
+    };
+}
+
 fn pushPacketEntity(
     allocator: std.mem.Allocator,
     entities: *std.ArrayList(Entity),
@@ -197,12 +254,16 @@ fn pushPacketEntity(
     dst_column: u16,
     substep: u16,
     phase: f32,
+    profile: CameraProfile,
+    active_partial_row: ?u16,
+    choreo_profile: motion.ChoreoProfile,
 ) !void {
-    const p = packetProgress(substep, phase);
+    const p = packetProgressForRole(role, substep, phase, choreo_profile);
+    const row = rowForRole(role, src_column, value, profile, active_partial_row);
     const transform = switch (role) {
-        .carry_packet => motion.calcCarryTransform(p, src_column, dst_column),
-        .borrow_packet => motion.calcBorrowTransform(p, src_column, dst_column, value),
-        .shift_packet => motion.calcShiftTransform(p, src_column, dst_column),
+        .carry_packet => motion.calcCarryTransformWithProfile(p, src_column, dst_column, choreo_profile),
+        .borrow_packet => motion.calcBorrowTransformWithProfile(p, src_column, dst_column, value, choreo_profile),
+        .shift_packet => motion.calcShiftTransformWithProfile(p, src_column, dst_column, choreo_profile),
         else => motion.Transform{
             .pos_x = @as(f32, @floatFromInt(src_column)),
             .pos_y = 0.5,
@@ -215,6 +276,8 @@ fn pushPacketEntity(
     try entities.append(allocator, .{
         .id = next_id.*,
         .role = role,
+        .row_kind = row.row_kind,
+        .row_index = row.row_index,
         .column = src_column,
         .value = value,
         .visible = true,
@@ -241,9 +304,13 @@ pub fn buildSceneAtTimeWithCameraMode(
 ) !ArithmeticSceneState {
     const max_col = maxColumnInTape(t);
     const col_count: usize = @as(usize, max_col) + 1;
+    const profile = detectProfile(t);
+    const choreo_profile = choreoProfileForCamera(camera_mode);
 
-    const source_values = try allocator.alloc(i16, col_count);
-    defer allocator.free(source_values);
+    const source_primary_values = try allocator.alloc(i16, col_count);
+    defer allocator.free(source_primary_values);
+    const source_secondary_values = try allocator.alloc(i16, col_count);
+    defer allocator.free(source_secondary_values);
     const result_values = try allocator.alloc(i16, col_count);
     defer allocator.free(result_values);
     const active_flags = try allocator.alloc(bool, col_count);
@@ -251,7 +318,8 @@ pub fn buildSceneAtTimeWithCameraMode(
     const partial_row_active = try allocator.alloc(bool, col_count);
     defer allocator.free(partial_row_active);
 
-    @memset(source_values, -1);
+    @memset(source_primary_values, -1);
+    @memset(source_secondary_values, -1);
     @memset(result_values, -1);
     @memset(active_flags, false);
     @memset(partial_row_active, false);
@@ -260,6 +328,7 @@ pub fn buildSceneAtTimeWithCameraMode(
     defer entities.deinit(allocator);
     var next_id: u32 = 1;
     var is_finalized = false;
+    var active_partial_row: ?u16 = null;
     const phase = clampPhase(sample.phase);
 
     for (t.events) |e| {
@@ -271,17 +340,64 @@ pub fn buildSceneAtTimeWithCameraMode(
             const start = @as(f32, @floatFromInt(e.time.substep)) / 100.0;
             if (phase >= start) {
                 switch (e.kind) {
+                    .partial_row_start => {
+                        active_partial_row = e.column;
+                    },
+                    .partial_row_complete => {
+                        if (active_partial_row != null and active_partial_row.? == e.column) {
+                            active_partial_row = null;
+                        }
+                    },
                     .carry_emit => {
                         const to = e.carry_to_column orelse @min(@as(u16, @intCast(col_count - 1)), e.column + 1);
-                        try pushPacketEntity(allocator, &entities, &next_id, .carry_packet, e.value, e.column, to, e.time.substep, phase);
+                        try pushPacketEntity(
+                            allocator,
+                            &entities,
+                            &next_id,
+                            .carry_packet,
+                            e.value,
+                            e.column,
+                            to,
+                            e.time.substep,
+                            phase,
+                            profile,
+                            active_partial_row,
+                            choreo_profile,
+                        );
                     },
                     .borrow_request => {
                         const from = e.borrow_from_column orelse @min(@as(u16, @intCast(col_count - 1)), e.column + 1);
-                        try pushPacketEntity(allocator, &entities, &next_id, .borrow_packet, e.value, from, e.column, e.time.substep, phase);
+                        try pushPacketEntity(
+                            allocator,
+                            &entities,
+                            &next_id,
+                            .borrow_packet,
+                            e.value,
+                            from,
+                            e.column,
+                            e.time.substep,
+                            phase,
+                            profile,
+                            active_partial_row,
+                            choreo_profile,
+                        );
                     },
                     .shift_start => {
                         const to = e.target_column orelse @min(@as(u16, @intCast(col_count - 1)), e.column + 1);
-                        try pushPacketEntity(allocator, &entities, &next_id, .shift_packet, e.value, e.column, to, e.time.substep, phase);
+                        try pushPacketEntity(
+                            allocator,
+                            &entities,
+                            &next_id,
+                            .shift_packet,
+                            e.value,
+                            e.column,
+                            to,
+                            e.time.substep,
+                            phase,
+                            profile,
+                            active_partial_row,
+                            choreo_profile,
+                        );
                     },
                     else => {},
                 }
@@ -290,7 +406,12 @@ pub fn buildSceneAtTimeWithCameraMode(
 
         if (eventApplied(e, sample)) {
             switch (e.kind) {
-                .digit_place => source_values[e.column] = @as(i16, @intCast(e.value)),
+                .digit_place => {
+                    source_primary_values[e.column] = @as(i16, @intCast(e.value));
+                    if (e.rhs_value) |rhs_v| {
+                        source_secondary_values[e.column] = @as(i16, @intCast(rhs_v));
+                    }
+                },
                 .digit_settle => result_values[e.column] = @as(i16, @intCast(e.value)),
                 .partial_row_start => partial_row_active[e.column] = true,
                 .partial_row_complete => partial_row_active[e.column] = false,
@@ -304,9 +425,12 @@ pub fn buildSceneAtTimeWithCameraMode(
     while (row < col_count) : (row += 1) {
         if (partial_row_active[row]) {
             const row_f = @as(f32, @floatFromInt(row));
+            const row_meta = rowForRole(.partial_row_marker, @as(u16, @intCast(row)), 0, profile, null);
             try entities.append(allocator, .{
                 .id = next_id,
                 .role = .partial_row_marker,
+                .row_kind = row_meta.row_kind,
+                .row_index = row_meta.row_index,
                 .column = @as(u16, @intCast(row)),
                 .value = 0,
                 .visible = true,
@@ -324,12 +448,15 @@ pub fn buildSceneAtTimeWithCameraMode(
 
     var col: usize = 0;
     while (col < col_count) : (col += 1) {
-        if (source_values[col] >= 0) {
-                try entities.append(allocator, .{
+        if (source_primary_values[col] >= 0) {
+            const row_meta = rowForRole(.operand_primary_digit, @as(u16, @intCast(col)), @as(u16, @intCast(source_primary_values[col])), profile, null);
+            try entities.append(allocator, .{
                 .id = next_id,
-                .role = .source_digit,
+                .role = .operand_primary_digit,
+                .row_kind = row_meta.row_kind,
+                .row_index = row_meta.row_index,
                 .column = @as(u16, @intCast(col)),
-                .value = @as(u16, @intCast(source_values[col])),
+                .value = @as(u16, @intCast(source_primary_values[col])),
                 .visible = true,
                 .in_transit = false,
                 .pos_x = @as(f32, @floatFromInt(col)),
@@ -341,10 +468,33 @@ pub fn buildSceneAtTimeWithCameraMode(
             });
             next_id += 1;
         }
+        if (source_secondary_values[col] >= 0) {
+            const row_meta = rowForRole(.operand_secondary_digit, @as(u16, @intCast(col)), @as(u16, @intCast(source_secondary_values[col])), profile, null);
+            try entities.append(allocator, .{
+                .id = next_id,
+                .role = .operand_secondary_digit,
+                .row_kind = row_meta.row_kind,
+                .row_index = row_meta.row_index,
+                .column = @as(u16, @intCast(col)),
+                .value = @as(u16, @intCast(source_secondary_values[col])),
+                .visible = true,
+                .in_transit = false,
+                .pos_x = @as(f32, @floatFromInt(col)),
+                .pos_y = 0.5,
+                .pos_z = 0.01,
+                .scale = 0.96,
+                .yaw_deg = 0.0,
+                .emissive = if (active_flags[col]) .active else .idle,
+            });
+            next_id += 1;
+        }
         if (result_values[col] >= 0) {
-                try entities.append(allocator, .{
+            const row_meta = rowForRole(.result_digit, @as(u16, @intCast(col)), @as(u16, @intCast(result_values[col])), profile, null);
+            try entities.append(allocator, .{
                 .id = next_id,
                 .role = .result_digit,
+                .row_kind = row_meta.row_kind,
+                .row_index = row_meta.row_index,
                 .column = @as(u16, @intCast(col)),
                 .value = @as(u16, @intCast(result_values[col])),
                 .visible = true,
@@ -424,6 +574,108 @@ test "scene mapping: add single carry exposes carry packet in transit" {
     try std.testing.expectEqual(@as(usize, 1), countRole(scene, .carry_packet));
     try std.testing.expect(hasActiveColumn(scene, 0));
     try std.testing.expect(!scene.is_finalized);
+}
+
+test "row semantics: decimal addition source/result digits map to explicit paper rows" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 2, .phase = 1.0 });
+    defer scene.deinit(allocator);
+
+    var source_count: usize = 0;
+    var result_count: usize = 0;
+    for (scene.entities) |e| {
+        if (!e.visible or e.in_transit) continue;
+        switch (e.role) {
+            .operand_primary_digit => {
+                source_count += 1;
+                try std.testing.expectEqual(PaperRowKind.operand_primary, e.row_kind);
+                try std.testing.expectEqual(@as(u16, 1), e.row_index);
+            },
+            .result_digit => {
+                result_count += 1;
+                try std.testing.expectEqual(PaperRowKind.result, e.row_kind);
+                try std.testing.expectEqual(@as(u16, 3), e.row_index);
+            },
+            else => {},
+        }
+    }
+
+    try std.testing.expect(source_count > 0);
+    try std.testing.expect(result_count > 0);
+}
+
+test "row semantics: decimal addition exposes secondary operand row from event payload" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.0 });
+    defer scene.deinit(allocator);
+
+    var found_secondary = false;
+    for (scene.entities) |e| {
+        if (!e.visible or e.in_transit) continue;
+        if (e.role == .operand_secondary_digit and e.row_kind == .operand_secondary and e.column == 0 and e.value == 8) {
+            found_secondary = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_secondary);
+}
+
+test "row semantics: decimal carry packet maps to carry row during transit" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer scene.deinit(allocator);
+
+    const carry = firstRoleEntity(scene, .carry_packet) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(carry.in_transit);
+    try std.testing.expectEqual(PaperRowKind.carry, carry.row_kind);
+    try std.testing.expectEqual(@as(u16, 0), carry.row_index);
+}
+
+test "row semantics: multiplication carry packet follows active partial-product row" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.mul_base60_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try multiplication.multiplyWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer scene.deinit(allocator);
+
+    const carry = firstRoleEntity(scene, .carry_packet) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(carry.in_transit);
+    try std.testing.expectEqual(PaperRowKind.partial_product, carry.row_kind);
+    try std.testing.expectEqual(@as(u16, 4), carry.row_index);
 }
 
 test "scene mapping: subtraction borrow chain exposes borrow packet in transit" {
@@ -654,6 +906,114 @@ test "packet choreography uses role-specific 3d arcs" {
 
     try std.testing.expect(carry.pos_z > shift_pkt.pos_z);
     try std.testing.expect(carry.scale > shift_pkt.scale);
+}
+
+test "camera mode maps to different choreography profiles for packet motion" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var story = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .storyboard);
+    defer story.deinit(allocator);
+    var cine = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .cinematic);
+    defer cine.deinit(allocator);
+    var debug = try buildSceneAtTimeWithCameraMode(allocator, res.tape, .{ .tick = 0, .phase = 0.5 }, .debug);
+    defer debug.deinit(allocator);
+
+    const carry_story = firstRoleEntity(story, .carry_packet) orelse return error.TestUnexpectedResult;
+    const carry_cine = firstRoleEntity(cine, .carry_packet) orelse return error.TestUnexpectedResult;
+    const carry_debug = firstRoleEntity(debug, .carry_packet) orelse return error.TestUnexpectedResult;
+
+    try std.testing.expect(carry_cine.pos_z > carry_story.pos_z);
+    try std.testing.expect(carry_story.pos_z > carry_debug.pos_z);
+}
+
+test "carry choreography key samples preserve arc identity at p≈0/0.5/1" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.add_decimal_single_carry;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try addition.addWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var start_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.03 });
+    defer start_scene.deinit(allocator);
+    var mid_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.515 });
+    defer mid_scene.deinit(allocator);
+    var end_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.999 });
+    defer end_scene.deinit(allocator);
+
+    const start = firstRoleEntity(start_scene, .carry_packet) orelse return error.TestUnexpectedResult;
+    const mid = firstRoleEntity(mid_scene, .carry_packet) orelse return error.TestUnexpectedResult;
+    const finish = firstRoleEntity(end_scene, .carry_packet) orelse return error.TestUnexpectedResult;
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), start.pos_x, 0.01);
+    try std.testing.expect(mid.pos_y > start.pos_y);
+    try std.testing.expect(mid.pos_y > finish.pos_y);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), finish.pos_x, 0.02);
+}
+
+test "borrow choreography key samples preserve lift-and-drop identity at p≈0/0.5/1" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.sub_decimal_borrow_once;
+
+    var lhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer lhs.deinit(allocator);
+    var rhs = try number.DigitNumber.fromU64(allocator, fx.base, fx.rhs);
+    defer rhs.deinit(allocator);
+    var res = try subtraction.subWithEvents(allocator, lhs, rhs);
+    defer res.deinit(allocator);
+
+    var start_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.01 });
+    defer start_scene.deinit(allocator);
+    var mid_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.505 });
+    defer mid_scene.deinit(allocator);
+    var end_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.999 });
+    defer end_scene.deinit(allocator);
+
+    const start = firstRoleEntity(start_scene, .borrow_packet) orelse return error.TestUnexpectedResult;
+    const mid = firstRoleEntity(mid_scene, .borrow_packet) orelse return error.TestUnexpectedResult;
+    const finish = firstRoleEntity(end_scene, .borrow_packet) orelse return error.TestUnexpectedResult;
+
+    try std.testing.expect(mid.pos_y > start.pos_y);
+    try std.testing.expect(mid.pos_y > finish.pos_y);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), finish.pos_x, 0.03);
+}
+
+test "shift choreography key samples preserve horizontal identity at p≈0/0.5/1" {
+    const allocator = std.testing.allocator;
+    const fx = fixtures.shift_decimal_left_once;
+
+    var input = try number.DigitNumber.fromU64(allocator, fx.base, fx.lhs);
+    defer input.deinit(allocator);
+    var res = try shift.multiplyByBaseWithEvents(allocator, input);
+    defer res.deinit(allocator);
+
+    var start_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.0 });
+    defer start_scene.deinit(allocator);
+    var mid_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.5 });
+    defer mid_scene.deinit(allocator);
+    var end_scene = try buildSceneAtTime(allocator, res.tape, .{ .tick = 0, .phase = 0.999 });
+    defer end_scene.deinit(allocator);
+
+    const start = firstRoleEntity(start_scene, .shift_packet) orelse return error.TestUnexpectedResult;
+    const mid = firstRoleEntity(mid_scene, .shift_packet) orelse return error.TestUnexpectedResult;
+    const finish = firstRoleEntity(end_scene, .shift_packet) orelse return error.TestUnexpectedResult;
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), start.pos_y, 0.02);
+    try std.testing.expectApproxEqAbs(start.pos_y, mid.pos_y, 0.02);
+    try std.testing.expectApproxEqAbs(mid.pos_y, finish.pos_y, 0.02);
+    try std.testing.expect(finish.pos_x > mid.pos_x and mid.pos_x > start.pos_x);
+    try std.testing.expect(finish.yaw_deg > mid.yaw_deg and mid.yaw_deg > start.yaw_deg);
 }
 
 test "multiplication partial rows are depth-separated by row index across samples" {

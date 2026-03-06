@@ -91,6 +91,16 @@ To maintain visual consistency, operations must keep a stable motion identity:
 * **Carry (addition overflow):** energetic and buoyant. Follows a vertical arc and uses `easeOutCubic` on the horizontal axis so the throw feels fast and the landing feels heavy.
 * **Borrow (subtraction scarcity):** heavy and fracturing. Begins with vertical lift, then resolves into a delayed staggered cascade of smaller units, like opening a physical reserve.
 
+### Written arithmetic staging grammar
+
+When the demo stages schoolbook arithmetic, the page layout must stay legible and deterministic:
+
+* `column 0` is always the units column logically, even if a theme later mirrors the whole paper view.
+* Addition and subtraction use a fixed four-band stack: carry row, upper operand row, lower operand row, result row.
+* Multiplication uses the operand rows first, then one partial-product row per multiplier digit, then a final result row.
+* Using another row on paper must read as a deliberate row allocation event, not as a loose depth layer or decorative offset.
+* Carries and borrows travel through dedicated transfer lanes above the digit cells; they do not simply appear by changing the destination digit.
+
 ---
 
 ## 5. Sequence-by-sequence storyboard
@@ -172,7 +182,8 @@ The second row descends or slides into alignment.
 
 Units merge with units.
 Tens align with tens.
-The result forms below or in a result line.
+The carry row remains empty.
+The result forms in a distinct result row below the two operand rows.
 
 Everything resolves cleanly with no carry.
 
@@ -180,6 +191,7 @@ Everything resolves cleanly with no carry.
 
 Stable and readable.
 A slight forward motion is acceptable as the result completes.
+Framing must remain temporally stable across entity transitions: short-lived transfer markers may be visible, but they must not cause hard per-frame camera recentering.
 
 ### Sound
 
@@ -209,12 +221,12 @@ The last incoming object causes the column to overflow.
 
 At that moment:
 
-* the local result in the unit column resolves to the remainder;
+* the local result in the unit column resolves to the remainder in the result row;
 * the excess value condenses into a luminous particle or beam;
-* that carry rises, arcs, and lands in the next column.
+* that carry rises into the carry lane, arcs, and lands above the next column before the next column settles.
 
 Nearby objects briefly react to its passage.
-A soft illumination spreads across the receiving column.
+A soft illumination spreads across the receiving column and its carry anchor.
 Then the final result stabilizes.
 
 ### Camera
@@ -222,6 +234,7 @@ Then the final result stabilizes.
 Mostly strict.
 A subtle tilt or close emphasis can happen only during the carry arc.
 Then the camera returns to a clean readable framing.
+If readability conflicts with visual flourish on constrained runtimes (for example compatibility layers), keep storyboard framing stability as the priority.
 
 ### Motion identity
 
@@ -473,11 +486,12 @@ or a binary multiplication if the first cut wants stronger visual economy.
 The multiplicand appears as a structured row.
 The multiplier activates one row at a time.
 Each partial product is formed.
-Each row is shifted according to position.
+Each partial product receives its own explicit row on the page.
+Each row is shifted according to position by column alignment, not by arbitrary free motion.
 Then the rows accumulate.
 
 This should look like arithmetic becoming architecture.
-Rows stack, align, offset, and finally collapse into a result.
+Rows stack, align, offset, and finally collapse into a result row that is visually distinct from the temporary work rows.
 
 ### Motion
 

@@ -4,15 +4,15 @@ const keyframes = @import("keyframes.zig");
 // Use `zig build rebaseline-keyframes` to refresh intentionally.
 pub const baselines = [_]keyframes.BaselineHashes{
     // add_mid
-    .{ .semantic = 0xb9773ee70299a440, .layout = 0x346c30a3ac0f4018, .plan = 0x8c8477fc83acc985 },
+    .{ .semantic = 0x2a3101b2d6aab82b, .layout = 0xb0c37ab44dfd2a76, .plan = 0xb27098770910e406 },
     // sub_mid
-    .{ .semantic = 0xc8376158dd5ddec8, .layout = 0xed07b5892653a989, .plan = 0xb3abc3a662ed671c },
+    .{ .semantic = 0x4e7fa6fa3bb5179f, .layout = 0x9c20afcadd066411, .plan = 0xca3815ed975bc937 },
     // shift_mid
-    .{ .semantic = 0xa7fa35bd3e34d3a9, .layout = 0xc4f881b2dfbb890e, .plan = 0x879209cc2a25b7a0 },
+    .{ .semantic = 0xd36ec6984f6bd70b, .layout = 0x14a13e9b0ba7b3a6, .plan = 0x2943731e57f97eac },
     // add_final
-    .{ .semantic = 0x76328735fec9747b, .layout = 0x6910839024e48164, .plan = 0x2b2b4d613aed9b5a },
+    .{ .semantic = 0x0ceee6c8b32d9ad4, .layout = 0x8a0da132185efc21, .plan = 0x9eb8402c8c6a96ab },
     // mul_mid
-    .{ .semantic = 0xcddf23833543e29f, .layout = 0x4f43599026d7dc9f, .plan = 0xcad8925878ecde7a },
+    .{ .semantic = 0x09477a61c1dc4dd6, .layout = 0x209372af2f59620b, .plan = 0x2b961daed4f72ade },
     // mul_final
-    .{ .semantic = 0x3286c423adb17689, .layout = 0x6bf3c4647dc06e1f, .plan = 0xe0129b722fca117b },
+    .{ .semantic = 0x646e8a76d5f834bc, .layout = 0xfcc6166bbf0da4f4, .plan = 0xc1e49ff8dba08e8f },
 };

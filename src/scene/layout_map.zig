@@ -17,7 +17,8 @@ pub const LayoutConfig = struct {
 
 fn roleDepth(role: es.EntityRole) f32 {
     return switch (role) {
-        .source_digit => 0.00,
+        .operand_primary_digit => 0.00,
+        .operand_secondary_digit => 0.01,
         .result_digit => 0.02,
         .carry_packet => 0.04,
         .borrow_packet => 0.06,
@@ -26,12 +27,14 @@ fn roleDepth(role: es.EntityRole) f32 {
     };
 }
 
-fn roleYOffset(role: es.EntityRole, cfg: LayoutConfig) f32 {
-    return switch (role) {
-        .source_digit => 0.0,
-        .result_digit => cfg.row_spacing,
-        .carry_packet, .borrow_packet, .shift_packet => cfg.row_spacing * 0.5,
-        .partial_row_marker => cfg.row_spacing * 1.4,
+fn rowAnchorY(kind: es.PaperRowKind, row_index: u16, cfg: LayoutConfig) f32 {
+    const row_f = @as(f32, @floatFromInt(row_index));
+    return switch (kind) {
+        // Canonical paper rows:
+        // 0 = carry line, 1 = primary operand line, 3 = result line.
+        .carry, .operand_primary, .operand_secondary, .result, .borrow_reserve, .annotation => (row_f - 1.0) * cfg.row_spacing,
+        // Partial-product rows are indexed as 4+N and stack beneath the result region.
+        .partial_product => cfg.row_spacing * (2.0 + (row_f - 4.0) * 0.75),
     };
 }
 
@@ -47,7 +50,7 @@ pub fn mapArithmeticToDots(
     var i: usize = 0;
     for (arithmetic.entities) |e| {
         const x = e.pos_x * cfg.column_spacing;
-        const y = roleYOffset(e.role, cfg) + (e.pos_y - 0.5) * 0.2;
+        const y = rowAnchorY(e.row_kind, e.row_index, cfg) + (e.pos_y - 0.5) * (cfg.row_spacing * 0.35);
         const z = roleDepth(e.role) + e.pos_z * 0.4;
         dots[i] = .{ .x = x, .y = y, .z = z };
         i += 1;
@@ -63,6 +66,15 @@ pub fn mapArithmeticToDots(
     }
 
     return .{ .dots = dots };
+}
+
+fn firstRoleDot(arithmetic: es.ArithmeticSceneState, mapped: scene_state.SceneState, role: es.EntityRole) ?scene_state.Dot {
+    var i: usize = 0;
+    while (i < arithmetic.entities.len) : (i += 1) {
+        const e = arithmetic.entities[i];
+        if (e.visible and e.role == role) return mapped.dots[i];
+    }
+    return null;
 }
 
 pub fn layoutHash(allocator: std.mem.Allocator, arithmetic: es.ArithmeticSceneState, cfg: LayoutConfig) !u64 {
@@ -130,4 +142,27 @@ test "layout hash changes across animation phase within same tape" {
 
     try std.testing.expect(sem_early != sem_late);
     try std.testing.expect(lay_early != lay_late);
+}
+
+test "layout y-axis follows explicit paper row semantics" {
+    const allocator = std.testing.allocator;
+    const cfg = LayoutConfig{};
+
+    var transfer = try addSceneAt(allocator, fixtures.add_decimal_single_carry, .{ .tick = 0, .phase = 0.5 });
+    defer transfer.deinit(allocator);
+    const mapped_transfer = try mapArithmeticToDots(allocator, transfer, cfg);
+    defer allocator.free(mapped_transfer.dots);
+
+    const carry_dot = firstRoleDot(transfer, mapped_transfer, .carry_packet) orelse return error.TestUnexpectedResult;
+    const source_dot = firstRoleDot(transfer, mapped_transfer, .operand_primary_digit) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(carry_dot.y < source_dot.y);
+
+    var final_scene = try addSceneAt(allocator, fixtures.add_decimal_single_carry, .{ .tick = 2, .phase = 1.0 });
+    defer final_scene.deinit(allocator);
+    const mapped_final = try mapArithmeticToDots(allocator, final_scene, cfg);
+    defer allocator.free(mapped_final.dots);
+
+    const final_source_dot = firstRoleDot(final_scene, mapped_final, .operand_primary_digit) orelse return error.TestUnexpectedResult;
+    const final_result_dot = firstRoleDot(final_scene, mapped_final, .result_digit) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(final_result_dot.y > final_source_dot.y);
 }

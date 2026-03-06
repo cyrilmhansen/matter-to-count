@@ -19,6 +19,7 @@ const Config = struct {
     scene_kind: scene_controller.SceneKind = .add,
     camera_mode: scene_controller.CameraMode = .storyboard,
     render_view: @import("render/d3d11.zig").RenderView = .beauty,
+    sum_composition_overlay: bool = false,
 };
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
@@ -35,6 +36,8 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             cfg.loop = true;
         } else if (std.mem.eql(u8, arg, "--display-3d")) {
             cfg.display_3d = true;
+        } else if (std.mem.eql(u8, arg, "--sum-overlay")) {
+            cfg.sum_composition_overlay = true;
         } else if (std.mem.eql(u8, arg, "--frames")) {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
@@ -80,6 +83,9 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
                 cfg.render_view = .depth;
             } else if (std.mem.eql(u8, argv[i], "role-id")) {
                 cfg.render_view = .role_id;
+            } else if (std.mem.eql(u8, argv[i], "sum-comp")) {
+                cfg.render_view = .beauty;
+                cfg.sum_composition_overlay = true;
             } else {
                 return error.InvalidArguments;
             }
@@ -102,7 +108,18 @@ pub fn main() !void {
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames, should_loop, cfg.display_3d, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode, cfg.render_view);
+        try app.run(
+            cfg.frames,
+            should_loop,
+            cfg.display_3d,
+            cfg.width,
+            cfg.height,
+            cfg.screenshot_out,
+            cfg.scene_kind,
+            cfg.camera_mode,
+            cfg.render_view,
+            cfg.sum_composition_overlay,
+        );
     }
 
     var frame: u32 = 0;

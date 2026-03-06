@@ -15,6 +15,7 @@ pub fn run(
     scene_kind: scene_controller.SceneKind,
     camera_mode: scene_controller.CameraMode,
     render_view: d3d11.RenderView,
+    sum_composition_overlay: bool,
 ) !void {
     if (builtin.os.tag != .windows) return;
     const win32 = @import("../platform/win32/window.zig");
@@ -44,11 +45,12 @@ pub fn run(
         .{ display_3d_status.requested, display_3d_status.enabled, display_3d_status.supported },
     );
 
-    var controller = scene_controller.Controller.init(scene_kind, camera_mode);
+    var controller = scene_controller.Controller.init(scene_kind, camera_mode, sum_composition_overlay);
 
     var clock = time.FixedClock.init(1.0 / 60.0);
     var fb_width = window.width;
     var fb_height = window.height;
+    const trace_anim = std.process.hasEnvVarConstant("MTC_TRACE_ANIM");
 
     var frame: u32 = 0;
     while (loop or frame < frames) : (frame +%= 1) {
@@ -67,6 +69,14 @@ pub fn run(
             return err;
         };
         defer frame_data.deinit(allocator);
+        // Use a non-divisor cadence relative to the 30-frame choreography phase
+        // so traces don't alias to phase=0 on every sample.
+        if (trace_anim and (frame % 17 == 0)) {
+            log.info(
+                "anim_trace frame={d} tick={d} phase={d}% transit={d} points={d}",
+                .{ frame, frame_data.tick, frame_data.phase_pct, frame_data.transit_count, frame_data.plan.points.len },
+            );
+        }
         renderer.render(fb_width, fb_height, frame_data.plan, frame_data.legend(), render_view);
         clock.tick();
     }

@@ -45,6 +45,9 @@ pub const FrameData = struct {
     plan: render_plan.RenderPlan,
     legend_buf: [64]u8,
     legend_len: usize,
+    tick: u32,
+    phase_pct: u32,
+    transit_count: usize,
 
     pub fn deinit(self: *FrameData, allocator: std.mem.Allocator) void {
         self.plan.deinit(allocator);
@@ -61,10 +64,15 @@ pub const Controller = struct {
 
     scene_kind: SceneKind,
     camera_mode: CameraMode,
+    sum_composition_overlay: bool,
     frame_index: u32 = 0,
 
-    pub fn init(scene_kind: SceneKind, camera_mode: CameraMode) Controller {
-        return .{ .scene_kind = scene_kind, .camera_mode = camera_mode };
+    pub fn init(scene_kind: SceneKind, camera_mode: CameraMode, sum_composition_overlay: bool) Controller {
+        return .{
+            .scene_kind = scene_kind,
+            .camera_mode = camera_mode,
+            .sum_composition_overlay = sum_composition_overlay,
+        };
     }
 
     pub fn nextFrame(self: *Controller, allocator: std.mem.Allocator) !FrameData {
@@ -83,10 +91,18 @@ pub const Controller = struct {
         defer scene.deinit(allocator);
 
         var out = FrameData{
-            .plan = try render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{}),
+            .plan = try render_plan.buildPlan(allocator, scene, layout_map.LayoutConfig{}, .{
+                .sum_composition_overlay = self.sum_composition_overlay,
+            }),
             .legend_buf = undefined,
             .legend_len = 0,
+            .tick = tick,
+            .phase_pct = phase_pct,
+            .transit_count = 0,
         };
+        for (scene.entities) |e| {
+            if (e.visible and e.in_transit) out.transit_count += 1;
+        }
         out.legend_len = (try std.fmt.bufPrint(&out.legend_buf, "{s} T{d} P{d:0>2}", .{ self.scene_kind.label(), tick, phase_pct })).len;
         self.frame_index +%= 1;
         return out;

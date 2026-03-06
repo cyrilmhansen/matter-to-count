@@ -39,7 +39,8 @@ pub fn addWithEvents(allocator: std.mem.Allocator, lhs: number.DigitNumber, rhs:
             .time = .{ .tick = @as(u32, @intCast(col)), .substep = 0 },
             .kind = .digit_place,
             .column = @as(u16, @intCast(col)),
-            .value = l + r,
+            .value = l,
+            .rhs_value = if (col < rhs.digits.len) r else null,
         });
 
         const s: u16 = l + r + carry;

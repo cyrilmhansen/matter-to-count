@@ -394,6 +394,15 @@ Suggested properties:
 
 Beauty presets and trailer presets may exist separately.
 
+### Camera/framing stability rules
+
+When adjusting renderer framing logic, preserve these constraints:
+
+* do not let volatile entities (transfer packets, active markers, debug tokens) drive camera center/extent;
+* prefer smoothing/interpolation of framing over per-frame hard snaps;
+* if a view is unstable, validate simulation health first with `MTC_TRACE_ANIM=1` before changing arithmetic or event generation;
+* if `tick`/`phase` advance while visuals flicker, treat it as presentation/framing first, not choreography logic failure.
+
 ---
 
 ## 10. Zig-specific engineering practices
@@ -475,6 +484,16 @@ When an agent is tasked with animating a new semantic event such as a division r
 3. **Write an animation sampling test:** assert that at `p = 0.0` the object is at the source, at `p = 0.5` it is at the expected arc peak or midpoint state, and at `p = 1.0` it is at the destination.
 4. **Apply to scene:** only after the math is tested should it be hooked into `src/scene/event_scene.zig` or `builder.zig`.
 
+## 11.6. Implementing Written-Arithmetic Layout
+
+When an agent is implementing or refactoring a paper-like arithmetic scene, the spatial grammar must be explicit before visual polish begins.
+
+1. **Declare row kinds first:** decide which semantic rows exist, such as `carry`, `operand_primary`, `operand_secondary`, `result`, or `partial_product`.
+2. **Bind digits to cells:** represent stable digits as occupants of explicit `(row_index, column_index)` cells rather than as free-floating objects.
+3. **Stage transfers through anchors:** carry and borrow entities must launch and land through declared transfer anchors rather than being implied by instant digit changes.
+4. **Allocate extra rows semantically:** a new multiplication or scratch row should be introduced as a row allocation decision, not as an arbitrary `y` or `z` offset.
+5. **Test row semantics directly:** add scene-state assertions that distinguish row identity, active columns, and in-transit packets.
+
 ---
 
 ## 12. What agents should avoid
@@ -486,6 +505,7 @@ Agents working on this codebase should avoid:
 * embedding critical logic inside shader code;
 * hardcoding magic animation math inside scene builders, such as `x = x + 0.5 * sin(...)` inside `event_scene.zig`;
 * inventing easing logic on the fly instead of routing temporal progress through formalized functions in `src/choreo/easing.zig`;
+* guessing written-arithmetic row placement from arbitrary offsets instead of declaring `row_index` and `row_kind`;
 * adding unstable snapshot tests without deterministic setup;
 * coupling the story meaning to one fragile visual trick;
 * replacing readable scene data with implicit GPU-only state;
@@ -503,6 +523,7 @@ Agents should:
 * keep keyframe tests small and intentional;
 * expose enough debug data for machine inspection;
 * document assumptions when adding a new visual behavior;
+* tune choreography constants in `src/choreo/tuning.zig` rather than scattering literals across scene or renderer code;
 * prefer repeatable pipelines over clever one-off effects.
 
 ---

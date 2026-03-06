@@ -29,7 +29,7 @@ pub fn main() !void {
 
         const semantic = try event_snapshot.snapshotHash(allocator, scene);
         const layout = try layout_map.layoutHash(allocator, scene, cfg);
-        var plan = try render_plan.buildPlan(allocator, scene, cfg);
+        var plan = try render_plan.buildPlan(allocator, scene, cfg, .{});
         defer plan.deinit(allocator);
         const plan_hash = render_plan.planHash(plan);
 

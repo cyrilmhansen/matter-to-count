@@ -46,6 +46,7 @@ pub fn subWithEvents(allocator: std.mem.Allocator, lhs: number.DigitNumber, rhs:
             .kind = .digit_place,
             .column = @as(u16, @intCast(col)),
             .value = @as(u16, @intCast(l_raw)),
+            .rhs_value = if (col < rhs.digits.len) @as(u16, @intCast(r_raw)) else null,
         });
 
         var v = l_raw - borrow - r_raw;

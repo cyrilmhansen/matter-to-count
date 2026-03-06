@@ -23,6 +23,7 @@ pub const Event = struct {
     kind: EventKind,
     column: u16,
     value: u16,
+    rhs_value: ?u16 = null,
     carry_to_column: ?u16 = null,
     borrow_from_column: ?u16 = null,
     target_column: ?u16 = null,
