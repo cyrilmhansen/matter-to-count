@@ -33,14 +33,20 @@ pub fn run(
         return err;
     };
     defer win32.destroy(window);
+    const stdout = std.fs.File.stdout().deprecatedWriter();
+    try stdout.print("STATUS: startup phase=window_ready\n", .{});
+    win32.setWindowTitle(allocator, window, "Matter to Count - Loading renderer...") catch {};
+    _ = win32.pumpMessages();
+    win32.drawLoadingScreen(allocator, window, "LOADING RENDERER...") catch {};
 
     var renderer = d3d11.Renderer.init(window.hwnd, window.width, window.height) catch |err| {
         log.err("d3d11 init failed: {}", .{err});
         return err;
     };
     defer renderer.deinit();
+    win32.setWindowTitle(allocator, window, "Matter to Count - Milestone 3 Preview") catch {};
+    try stdout.print("STATUS: startup phase=renderer_ready\n", .{});
     const display_3d_status = renderer.setDisplay3DMode(display_3d);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
     if (display_3d_status.requested and !display_3d_status.supported) {
         try stdout.print("WARNING: DirectX 3D display mode requested but unsupported on this runtime/GPU.\n", .{});
     }

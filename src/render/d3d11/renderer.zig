@@ -301,6 +301,63 @@ const WindowsRenderer = struct {
             \\  if (shape < 6.5) return float3(1.0, 1.0, 1.0);     // active
             \\  return float3(0.30, 0.30, 0.30);                   // ground/other
             \\}
+            \\float hash13(float3 p) {
+            \\  return frac(sin(dot(p, float3(127.1, 311.7, 74.7))) * 43758.5453);
+            \\}
+            \\float noise3(float3 p) {
+            \\  float3 i = floor(p);
+            \\  float3 f = frac(p);
+            \\  float n0 = hash13(i + float3(0, 0, 0));
+            \\  float n1 = hash13(i + float3(1, 0, 0));
+            \\  float n2 = hash13(i + float3(0, 1, 0));
+            \\  float n3 = hash13(i + float3(0, 0, 1));
+            \\  float n = lerp(n0, n1, f.x) * 0.45 + lerp(n2, n3, f.y) * 0.55;
+            \\  return n;
+            \\}
+            \\float fbm(float3 p) {
+            \\  float v = 0.0;
+            \\  float a = 0.5;
+            \\  [unroll]
+            \\  for (int i = 0; i < 4; ++i) {
+            \\    v += a * noise3(p);
+            \\    p = p * 2.01 + float3(11.7, 7.1, 3.4);
+            \\    a *= 0.5;
+            \\  }
+            \\  return v;
+            \\}
+            \\float hash31(float3 p) {
+            \\  p = frac(p * 0.1031);
+            \\  p += dot(p, p.yzx + 33.33);
+            \\  return frac((p.x + p.y) * p.z);
+            \\}
+            \\float texBands(float v, float freq) {
+            \\  float s = sin(v * freq);
+            \\  return 0.5 + 0.5 * s;
+            \\}
+            \\float materialTexture(float3 p, float3 n, float shape) {
+            \\  float g = hash31(floor(p * 10.0)) * 0.6 + hash31(floor(p * 24.0)) * 0.4;
+            \\  float tri = abs(n.x) * texBands(p.y + p.z, 18.0) +
+            \\              abs(n.y) * texBands(p.x + p.z, 16.0) +
+            \\              abs(n.z) * texBands(p.x + p.y, 20.0);
+            \\  tri /= max(abs(n.x) + abs(n.y) + abs(n.z), 0.0001);
+            \\  float role_bias = 1.0;
+            \\  if (shape < 0.5) role_bias = 1.08;       // carry: brighter
+            \\  else if (shape < 1.5) role_bias = 0.92;  // borrow: denser/darker
+            \\  else if (shape < 2.5) role_bias = 1.02;  // shift: cleaner
+            \\  else if (shape < 4.5) role_bias = 0.98;  // digit stacks
+            \\  float tex = lerp(g, tri, 0.55);
+            \\  return role_bias * (0.82 + tex * 0.28);
+            \\}
+            \\float terrainHeight(float2 xz) {
+            \\  float h = fbm(float3(xz * 0.32, 0.0));
+            \\  h += 0.5 * fbm(float3(xz * 0.78, 17.0));
+            \\  return (h - 0.62) * 0.20;
+            \\}
+            \\float marblePattern(float3 p) {
+            \\  float veins = p.x * 8.0 + p.y * 5.0 + p.z * 7.0;
+            \\  veins += fbm(p * 3.2 + float3(2.0, 5.0, 11.0)) * 7.5;
+            \\  return 0.5 + 0.5 * sin(veins);
+            \\}
             \\float sdSphere(float3 p, float s) { return length(p) - s; }
             \\float sdBox(float3 p, float3 b) {
             \\  float3 q = abs(p) - b;
@@ -375,10 +432,16 @@ const WindowsRenderer = struct {
             \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; h.shape = shape; }
             \\  }
             \\  // Keep ground orientation consistent with semantic-up display convention.
-            \\  float ground = -p.y + 0.72;
+            \\  // Add low-amplitude fbm displacement for rocky terrain.
+            \\  float ground_h = terrainHeight(p.xz);
+            \\  float ground = -p.y + (0.72 + ground_h);
             \\  if (ground < h.d) {
             \\    h.d = ground;
-            \\    h.col = float4(0.16, 0.15, 0.14, 1.0);
+            \\    float rock = fbm(float3(p.xz * 1.7, 31.0));
+            \\    float strata = 0.5 + 0.5 * sin((p.x + p.z) * 5.0 + rock * 5.0);
+            \\    float3 base_rock = lerp(float3(0.13, 0.12, 0.11), float3(0.23, 0.21, 0.19), rock);
+            \\    base_rock = lerp(base_rock, base_rock * 1.25, strata * 0.25);
+            \\    h.col = float4(base_rock, 1.0);
             \\    h.shape = 7.0;
             \\  }
             \\  return h;
@@ -448,8 +511,16 @@ const WindowsRenderer = struct {
             \\      float sh = softShadow(p + n * 0.003, ldir, 0.02, 8.0, 8.0);
             \\      float ao = calcAO(p, n);
             \\      float rim = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
+            \\      float tex = materialTexture(p, n, h.shape);
             \\      float3 bounce = float3(0.08, 0.07, 0.06) * max(0.0, -n.y) * 0.5;
-            \\      float3 lit = h.col.rgb * (0.10 + diff * sh * 0.95) * ao + rim * 0.12 + bounce;
+            \\      float3 albedo = h.col.rgb;
+            \\      if (h.shape < 6.9) {
+            \\        // IQ-style procedural marble tinting for object bodies.
+            \\        float m = marblePattern(p);
+            \\        float3 marble_tint = lerp(float3(0.78, 0.80, 0.84), float3(1.10, 1.05, 0.96), m);
+            \\        albedo *= marble_tint;
+            \\      }
+            \\      float3 lit = albedo * (0.10 + diff * sh * 0.95) * ao * tex + rim * 0.12 + bounce;
             \\      return float4(saturate(lit), 1.0);
             \\    }
             \\    t += h.d;
@@ -461,8 +532,13 @@ const WindowsRenderer = struct {
             \\  if (debug_view > 1.5) {
             \\    return float4(0.0, 0.0, 0.0, 1.0);
             \\  }
+            \\  // Fractal cloudy sky backdrop.
             \\  float v = 0.4 + 0.6 * (1.0 - uv.y * 0.5);
-            \\  return float4(0.04 * v, 0.05 * v, 0.08 * v, 1.0);
+            \\  float3 sky_base = lerp(float3(0.05, 0.08, 0.12), float3(0.16, 0.20, 0.28), saturate(0.5 + 0.5 * rd.y));
+            \\  float cloud = fbm(float3(rd.x * 3.0, rd.y * 2.0 + 8.0, rd.z * 3.0));
+            \\  cloud = smoothstep(0.48, 0.78, cloud);
+            \\  float3 sky = lerp(sky_base, sky_base + float3(0.22, 0.23, 0.24), cloud * 0.55);
+            \\  return float4(saturate(sky * v), 1.0);
             \\}
         ;
 
