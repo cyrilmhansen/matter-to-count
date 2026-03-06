@@ -1,23 +1,24 @@
 const std = @import("std");
+const win = @import("win_types.zig");
 
-pub const HWND = ?*anyopaque;
-pub const HINSTANCE = ?*anyopaque;
-pub const HICON = ?*anyopaque;
-pub const HCURSOR = ?*anyopaque;
-pub const HBRUSH = ?*anyopaque;
-pub const HMENU = ?*anyopaque;
-pub const HMODULE = ?*anyopaque;
-pub const HDC = ?*anyopaque;
-pub const LPCWSTR = [*:0]const u16;
-pub const LPVOID = ?*anyopaque;
-pub const WPARAM = usize;
-pub const LPARAM = isize;
-pub const LRESULT = isize;
-pub const UINT = u32;
-pub const DWORD = u32;
-pub const ATOM = u16;
-pub const BOOL = i32;
-pub const HRESULT = i32;
+pub const HWND = win.HWND;
+pub const HINSTANCE = win.HINSTANCE;
+pub const HICON = win.HICON;
+pub const HCURSOR = win.HCURSOR;
+pub const HBRUSH = win.HBRUSH;
+pub const HMENU = win.HMENU;
+pub const HMODULE = win.HMODULE;
+pub const HDC = win.HDC;
+pub const LPCWSTR = win.LPCWSTR;
+pub const LPVOID = win.LPVOID;
+pub const WPARAM = win.WPARAM;
+pub const LPARAM = win.LPARAM;
+pub const LRESULT = win.LRESULT;
+pub const UINT = win.UINT;
+pub const DWORD = win.DWORD;
+pub const ATOM = win.ATOM;
+pub const BOOL = win.BOOL;
+pub const HRESULT = win.HRESULT;
 
 pub const S_OK: HRESULT = 0;
 
