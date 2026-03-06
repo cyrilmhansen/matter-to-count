@@ -58,16 +58,16 @@ const WindowsRenderer = struct {
     swap_chain: *dxgi_if_manual.IDXGISwapChain,
     device: *d3d11_if.ID3D11Device,
     context: *d3d11_if.ID3D11DeviceContext,
-    back_buffer: *c.ID3D11Texture2D,
-    rtv: *c.ID3D11RenderTargetView,
-    checker_texture: *c.ID3D11Texture2D,
-    checker_srv: *c.ID3D11ShaderResourceView,
-    capture_texture: *c.ID3D11Texture2D,
-    vertex_shader: *c.ID3D11VertexShader,
-    pixel_shader: *c.ID3D11PixelShader,
-    input_layout: *c.ID3D11InputLayout,
-    vertex_buffer: *c.ID3D11Buffer,
-    scene_cb: *c.ID3D11Buffer,
+    back_buffer: *d3d11_if.ID3D11Texture2D,
+    rtv: *d3d11_if.ID3D11RenderTargetView,
+    checker_texture: *d3d11_if.ID3D11Texture2D,
+    checker_srv: *d3d11_if.ID3D11ShaderResourceView,
+    capture_texture: *d3d11_if.ID3D11Texture2D,
+    vertex_shader: *d3d11_if.ID3D11VertexShader,
+    pixel_shader: *d3d11_if.ID3D11PixelShader,
+    input_layout: *d3d11_if.ID3D11InputLayout,
+    vertex_buffer: *d3d11_if.ID3D11Buffer,
+    scene_cb: *d3d11_if.ID3D11Buffer,
     display_3d_active: bool,
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
@@ -223,16 +223,16 @@ const WindowsRenderer = struct {
     }
 
     const BackBufferBundle = struct {
-        back_buffer: *c.ID3D11Texture2D,
-        rtv: *c.ID3D11RenderTargetView,
+        back_buffer: *d3d11_if.ID3D11Texture2D,
+        rtv: *d3d11_if.ID3D11RenderTargetView,
     };
 
     const Checker = struct {
-        texture: *c.ID3D11Texture2D,
-        srv: *c.ID3D11ShaderResourceView,
+        texture: *d3d11_if.ID3D11Texture2D,
+        srv: *d3d11_if.ID3D11ShaderResourceView,
     };
 
-    fn createCaptureTexture(device: *c.ID3D11Device, tex_w: u32, tex_h: u32) !*c.ID3D11Texture2D {
+    fn createCaptureTexture(device: *d3d11_if.ID3D11Device, tex_w: u32, tex_h: u32) !*d3d11_if.ID3D11Texture2D {
         var tex_desc: d3d11_manual.D3D11_TEXTURE2D_DESC = std.mem.zeroes(d3d11_manual.D3D11_TEXTURE2D_DESC);
         tex_desc.Width = tex_w;
         tex_desc.Height = tex_h;
@@ -242,7 +242,7 @@ const WindowsRenderer = struct {
         tex_desc.SampleDesc.Count = 1;
         tex_desc.Usage = d3d11_manual.D3D11_USAGE_DEFAULT;
 
-        var texture: ?*c.ID3D11Texture2D = null;
+        var texture: ?*d3d11_if.ID3D11Texture2D = null;
         const hr_tex = device.lpVtbl.*.CreateTexture2D.?(
             device,
             @as(*const c.D3D11_TEXTURE2D_DESC, @ptrCast(&tex_desc)),
@@ -254,11 +254,11 @@ const WindowsRenderer = struct {
     }
 
     const TrianglePipeline = struct {
-        vertex_shader: *c.ID3D11VertexShader,
-        pixel_shader: *c.ID3D11PixelShader,
-        input_layout: *c.ID3D11InputLayout,
-        vertex_buffer: *c.ID3D11Buffer,
-        scene_cb: *c.ID3D11Buffer,
+        vertex_shader: *d3d11_if.ID3D11VertexShader,
+        pixel_shader: *d3d11_if.ID3D11PixelShader,
+        input_layout: *d3d11_if.ID3D11InputLayout,
+        vertex_buffer: *d3d11_if.ID3D11Buffer,
+        scene_cb: *d3d11_if.ID3D11Buffer,
     };
 
     const SceneCB = extern struct {
@@ -289,7 +289,7 @@ const WindowsRenderer = struct {
         return code.?;
     }
 
-    fn createTrianglePipeline(device: *c.ID3D11Device) !TrianglePipeline {
+    fn createTrianglePipeline(device: *d3d11_if.ID3D11Device) !TrianglePipeline {
         const vs_src =
             \\struct VSIn { float3 pos : POSITION; float4 col : COLOR; };
             \\struct VSOut { float4 pos : SV_POSITION; float4 col : COLOR; };
@@ -493,8 +493,8 @@ const WindowsRenderer = struct {
         const ps_blob = try compileShader(ps_src, "main\x00", "ps_4_0\x00");
         defer _ = ps_blob.lpVtbl.Release(ps_blob);
 
-        var vs: ?*c.ID3D11VertexShader = null;
-        var ps: ?*c.ID3D11PixelShader = null;
+        var vs: ?*d3d11_if.ID3D11VertexShader = null;
+        var ps: ?*d3d11_if.ID3D11PixelShader = null;
 
         const hr_vs = device.lpVtbl.*.CreateVertexShader.?(
             device,
@@ -538,7 +538,7 @@ const WindowsRenderer = struct {
             },
         };
 
-        var layout: ?*c.ID3D11InputLayout = null;
+        var layout: ?*d3d11_if.ID3D11InputLayout = null;
         const hr_layout = device.lpVtbl.*.CreateInputLayout.?(
             device,
             @as([*c]const c.D3D11_INPUT_ELEMENT_DESC, @ptrCast(&elems)),
@@ -559,7 +559,7 @@ const WindowsRenderer = struct {
         vb_desc.BindFlags = d3d11_manual.D3D11_BIND_VERTEX_BUFFER;
         vb_desc.CPUAccessFlags = d3d11_manual.D3D11_CPU_ACCESS_WRITE;
 
-        var vb: ?*c.ID3D11Buffer = null;
+        var vb: ?*d3d11_if.ID3D11Buffer = null;
         const hr_vb = device.lpVtbl.*.CreateBuffer.?(
             device,
             @as(*const c.D3D11_BUFFER_DESC, @ptrCast(&vb_desc)),
@@ -578,7 +578,7 @@ const WindowsRenderer = struct {
         cb_desc.Usage = d3d11_manual.D3D11_USAGE_DYNAMIC;
         cb_desc.BindFlags = d3d11_manual.D3D11_BIND_CONSTANT_BUFFER;
         cb_desc.CPUAccessFlags = d3d11_manual.D3D11_CPU_ACCESS_WRITE;
-        var scene_cb: ?*c.ID3D11Buffer = null;
+        var scene_cb: ?*d3d11_if.ID3D11Buffer = null;
         const hr_cb = device.lpVtbl.*.CreateBuffer.?(device, @as(*const c.D3D11_BUFFER_DESC, @ptrCast(&cb_desc)), null, &scene_cb);
         if (hr_cb != c.S_OK or scene_cb == null) {
             _ = vb.?.lpVtbl.*.Release.?(vb.?);
@@ -597,7 +597,7 @@ const WindowsRenderer = struct {
         };
     }
 
-    fn createCheckerTexture(device: *c.ID3D11Device, tex_w: u32, tex_h: u32) !Checker {
+    fn createCheckerTexture(device: *d3d11_if.ID3D11Device, tex_w: u32, tex_h: u32) !Checker {
         @setRuntimeSafety(false);
         const pixel_count: usize = @as(usize, tex_w) * @as(usize, tex_h);
         const pixels = try std.heap.page_allocator.alloc(u32, pixel_count);
@@ -626,7 +626,7 @@ const WindowsRenderer = struct {
         init_data.pSysMem = ptrAs(*const anyopaque, pixels.ptr);
         init_data.SysMemPitch = tex_w * 4;
 
-        var texture: ?*c.ID3D11Texture2D = null;
+        var texture: ?*d3d11_if.ID3D11Texture2D = null;
         const hr_tex = device.lpVtbl.*.CreateTexture2D.?(
             device,
             @as(*const c.D3D11_TEXTURE2D_DESC, @ptrCast(&tex_desc)),
@@ -635,22 +635,22 @@ const WindowsRenderer = struct {
         );
         if (hr_tex != c.S_OK or texture == null) return error.D3D11CreateTextureFailed;
 
-        var srv: ?*c.ID3D11ShaderResourceView = null;
+        var srv: ?*d3d11_if.ID3D11ShaderResourceView = null;
         const hr_srv = device.lpVtbl.*.CreateShaderResourceView.?(
             device,
-            ptrAs(*c.ID3D11Resource, texture.?),
+            ptrAs(*d3d11_if.ID3D11Resource, texture.?),
             null,
             &srv,
         );
         if (hr_srv != c.S_OK or srv == null) {
-            _ = texture.?.lpVtbl.*.Release.?(ptrAs(*c.ID3D11Texture2D, texture.?));
+            _ = texture.?.lpVtbl.*.Release.?(ptrAs(*d3d11_if.ID3D11Texture2D, texture.?));
             return error.D3D11CreateShaderResourceViewFailed;
         }
 
         return .{ .texture = texture.?, .srv = srv.? };
     }
 
-    fn createBackBufferAndRTV(device: *c.ID3D11Device, swap_chain: *dxgi_if_manual.IDXGISwapChain) !BackBufferBundle {
+    fn createBackBufferAndRTV(device: *d3d11_if.ID3D11Device, swap_chain: *dxgi_if_manual.IDXGISwapChain) !BackBufferBundle {
         @setRuntimeSafety(false);
         var back_buffer_raw: ?*anyopaque = null;
         const hr_buf = swap_chain.lpVtbl.GetBuffer(
@@ -660,10 +660,10 @@ const WindowsRenderer = struct {
             ptrAs(*?*anyopaque, &back_buffer_raw),
         );
         if (hr_buf != c.S_OK or back_buffer_raw == null) return error.D3D11GetBackBufferFailed;
-        const back_buffer: *c.ID3D11Texture2D = ptrAs(*c.ID3D11Texture2D, back_buffer_raw.?);
+        const back_buffer: *d3d11_if.ID3D11Texture2D = ptrAs(*d3d11_if.ID3D11Texture2D, back_buffer_raw.?);
 
-        var rtv: ?*c.ID3D11RenderTargetView = null;
-        const hr_rtv = device.lpVtbl.*.CreateRenderTargetView.?(device, ptrAs(*c.ID3D11Resource, back_buffer), null, &rtv);
+        var rtv: ?*d3d11_if.ID3D11RenderTargetView = null;
+        const hr_rtv = device.lpVtbl.*.CreateRenderTargetView.?(device, ptrAs(*d3d11_if.ID3D11Resource, back_buffer), null, &rtv);
         if (hr_rtv != c.S_OK or rtv == null) {
             _ = back_buffer.lpVtbl.*.Release.?(back_buffer);
             return error.D3D11CreateRTVFailed;
@@ -992,7 +992,7 @@ const WindowsRenderer = struct {
 
     pub fn render(self: *WindowsRenderer, width: u32, height: u32, plan: render_plan.RenderPlan, legend_text: []const u8, view: RenderView) void {
         @setRuntimeSafety(false);
-        var rtvs = [_]?*c.ID3D11RenderTargetView{self.rtv};
+        var rtvs = [_]?*d3d11_if.ID3D11RenderTargetView{self.rtv};
         self.context.lpVtbl.*.OMSetRenderTargets.?(self.context, 1, &rtvs, null);
 
         var vp: d3d11_manual.D3D11_VIEWPORT = std.mem.zeroes(d3d11_manual.D3D11_VIEWPORT);
@@ -1004,26 +1004,26 @@ const WindowsRenderer = struct {
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*c.ID3D11Resource, self.back_buffer),
-            ptrAs(*c.ID3D11Resource, self.checker_texture),
+            ptrAs(*d3d11_if.ID3D11Resource, self.back_buffer),
+            ptrAs(*d3d11_if.ID3D11Resource, self.checker_texture),
         );
 
         const stride = [_]c.UINT{@sizeOf(f32) * 7};
         const offset = [_]c.UINT{0};
-        const vb = [_]?*c.ID3D11Buffer{self.vertex_buffer};
+        const vb = [_]?*d3d11_if.ID3D11Buffer{self.vertex_buffer};
         self.context.lpVtbl.*.IASetInputLayout.?(self.context, self.input_layout);
         self.context.lpVtbl.*.IASetPrimitiveTopology.?(self.context, d3d11_manual.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         self.context.lpVtbl.*.IASetVertexBuffers.?(self.context, 0, 1, &vb, &stride, &offset);
         self.context.lpVtbl.*.VSSetShader.?(self.context, self.vertex_shader, null, 0);
         self.context.lpVtbl.*.PSSetShader.?(self.context, self.pixel_shader, null, 0);
-        const cbs = [_]?*c.ID3D11Buffer{self.scene_cb};
+        const cbs = [_]?*d3d11_if.ID3D11Buffer{self.scene_cb};
         self.context.lpVtbl.*.PSSetConstantBuffers.?(self.context, 0, 1, &cbs);
 
         const cb_data = fillSceneCB(plan, width, height, view);
         var mapped_cb: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
         const hr_cb = self.context.lpVtbl.*.Map.?(
             self.context,
-            ptrAs(*c.ID3D11Resource, self.scene_cb),
+            ptrAs(*d3d11_if.ID3D11Resource, self.scene_cb),
             0,
             d3d11_manual.D3D11_MAP_WRITE_DISCARD,
             0,
@@ -1033,7 +1033,7 @@ const WindowsRenderer = struct {
             const src = std.mem.asBytes(&cb_data);
             const dst = ptrAs([*]u8, mapped_cb.pData.?)[0..src.len];
             @memcpy(dst, src);
-            self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*c.ID3D11Resource, self.scene_cb), 0);
+            self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, self.scene_cb), 0);
         } else {
             log.err("d3d11 map scene constants failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_cb)))});
         }
@@ -1051,7 +1051,7 @@ const WindowsRenderer = struct {
             var mapped: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
             const hr_map = self.context.lpVtbl.*.Map.?(
                 self.context,
-                ptrAs(*c.ID3D11Resource, self.vertex_buffer),
+                ptrAs(*d3d11_if.ID3D11Resource, self.vertex_buffer),
                 0,
                 d3d11_manual.D3D11_MAP_WRITE_DISCARD,
                 0,
@@ -1061,7 +1061,7 @@ const WindowsRenderer = struct {
                 const src = std.mem.sliceAsBytes(verts);
                 const dst = ptrAs([*]u8, mapped.pData.?)[0..src.len];
                 @memcpy(dst, src);
-                self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*c.ID3D11Resource, self.vertex_buffer), 0);
+                self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, self.vertex_buffer), 0);
                 self.context.lpVtbl.*.Draw.?(self.context, vertex_count, 0);
             } else {
                 log.err("d3d11 map vertex buffer failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_map)))});
@@ -1070,8 +1070,8 @@ const WindowsRenderer = struct {
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*c.ID3D11Resource, self.capture_texture),
-            ptrAs(*c.ID3D11Resource, self.back_buffer),
+            ptrAs(*d3d11_if.ID3D11Resource, self.capture_texture),
+            ptrAs(*d3d11_if.ID3D11Resource, self.back_buffer),
         );
         _ = self.swap_chain.lpVtbl.Present(self.swap_chain, 1, 0);
     }
@@ -1128,7 +1128,7 @@ const WindowsRenderer = struct {
         desc.Usage = d3d11_manual.D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = d3d11_manual.D3D11_CPU_ACCESS_READ;
 
-        var staging: ?*c.ID3D11Texture2D = null;
+        var staging: ?*d3d11_if.ID3D11Texture2D = null;
         const hr_tex = self.device.lpVtbl.*.CreateTexture2D.?(
             self.device,
             @as(*const c.D3D11_TEXTURE2D_DESC, @ptrCast(&desc)),
@@ -1140,21 +1140,21 @@ const WindowsRenderer = struct {
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*c.ID3D11Resource, staging.?),
-            ptrAs(*c.ID3D11Resource, self.capture_texture),
+            ptrAs(*d3d11_if.ID3D11Resource, staging.?),
+            ptrAs(*d3d11_if.ID3D11Resource, self.capture_texture),
         );
 
         var mapped: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
         const hr_map = self.context.lpVtbl.*.Map.?(
             self.context,
-            ptrAs(*c.ID3D11Resource, staging.?),
+            ptrAs(*d3d11_if.ID3D11Resource, staging.?),
             0,
             d3d11_manual.D3D11_MAP_READ,
             0,
             @as(*c.D3D11_MAPPED_SUBRESOURCE, @ptrCast(&mapped)),
         );
         if (hr_map != c.S_OK) return error.D3D11MapStagingFailed;
-        defer self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*c.ID3D11Resource, staging.?), 0);
+        defer self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, staging.?), 0);
 
         var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
         defer file.close();
