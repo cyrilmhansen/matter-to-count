@@ -142,4 +142,5 @@ test {
     _ = @import("platform/win32/dxgi_manual.zig");
     _ = @import("platform/win32/dxgi_interfaces_manual.zig");
     _ = @import("platform/win32/com_iids.zig");
+    _ = @import("tests/win32_abi_guards.zig");
 }

@@ -80,6 +80,15 @@ pub fn build(b: *std.Build) void {
     const win64_step = b.step("win64", "Build Win64 executable (with mandatory sanity check)");
     win64_step.dependOn(&install_win64.step);
 
+    const win64_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = win64,
+        .optimize = optimize,
+    });
+    const win64_abi_tests = b.addTest(.{ .root_module = win64_test_mod });
+    const test_win64_abi_step = b.step("test-win64-abi", "Compile Win64 unit tests (includes ABI guard checks)");
+    test_win64_abi_step.dependOn(&win64_abi_tests.step);
+
     const smoke_cmd = b.addSystemCommand(&[_][]const u8{"bash", "-lc"});
     smoke_cmd.addArg("SMOKE_EXE=\"$0\" ./scripts/run_windows_smoke.sh");
     smoke_cmd.addArtifactArg(exe_win64);
