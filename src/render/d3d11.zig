@@ -9,6 +9,7 @@ const d3dcompiler_manual = @import("../platform/win32/d3dcompiler_manual.zig");
 const dxgi_manual = @import("../platform/win32/dxgi_manual.zig");
 const dxgi_if_manual = @import("../platform/win32/dxgi_interfaces_manual.zig");
 const com_iids = @import("../platform/win32/com_iids.zig");
+const com = @import("../platform/win32/com_helpers.zig");
 const log = @import("../util/logging.zig");
 const render_plan = @import("render_plan.zig");
 
@@ -110,47 +111,47 @@ const WindowsRenderer = struct {
         }
 
         const bb = createBackBufferAndRTV(device.?, swap_chain.?) catch |err| {
-            _ = context.?.lpVtbl.*.Release.?(context.?);
-            _ = device.?.lpVtbl.*.Release.?(device.?);
-            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
+            com.release(context.?);
+            com.release(device.?);
+            com.release(swap_chain.?);
             log.err("d3d11 create RTV failed: {}", .{err});
             return null;
         };
 
         const checker = createCheckerTexture(device.?, desc.BufferDesc.Width, desc.BufferDesc.Height) catch |err| {
-            _ = bb.rtv.lpVtbl.*.Release.?(bb.rtv);
-            _ = bb.back_buffer.lpVtbl.*.Release.?(bb.back_buffer);
-            _ = context.?.lpVtbl.*.Release.?(context.?);
-            _ = device.?.lpVtbl.*.Release.?(device.?);
-            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
+            com.release(bb.rtv);
+            com.release(bb.back_buffer);
+            com.release(context.?);
+            com.release(device.?);
+            com.release(swap_chain.?);
             log.err("d3d11 create checker texture failed: {}", .{err});
             return null;
         };
 
         const tri = createTrianglePipeline(device.?) catch |err| {
-            _ = checker.srv.lpVtbl.*.Release.?(checker.srv);
-            _ = checker.texture.lpVtbl.*.Release.?(checker.texture);
-            _ = bb.rtv.lpVtbl.*.Release.?(bb.rtv);
-            _ = bb.back_buffer.lpVtbl.*.Release.?(bb.back_buffer);
-            _ = context.?.lpVtbl.*.Release.?(context.?);
-            _ = device.?.lpVtbl.*.Release.?(device.?);
-            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
+            com.release(checker.srv);
+            com.release(checker.texture);
+            com.release(bb.rtv);
+            com.release(bb.back_buffer);
+            com.release(context.?);
+            com.release(device.?);
+            com.release(swap_chain.?);
             log.err("d3d11 create triangle pipeline failed: {}", .{err});
             return null;
         };
         const capture_texture = createCaptureTexture(device.?, desc.BufferDesc.Width, desc.BufferDesc.Height) catch |err| {
-            _ = tri.scene_cb.lpVtbl.*.Release.?(tri.scene_cb);
-            _ = tri.vertex_buffer.lpVtbl.*.Release.?(tri.vertex_buffer);
-            _ = tri.input_layout.lpVtbl.*.Release.?(tri.input_layout);
-            _ = tri.pixel_shader.lpVtbl.*.Release.?(tri.pixel_shader);
-            _ = tri.vertex_shader.lpVtbl.*.Release.?(tri.vertex_shader);
-            _ = checker.srv.lpVtbl.*.Release.?(checker.srv);
-            _ = checker.texture.lpVtbl.*.Release.?(checker.texture);
-            _ = bb.rtv.lpVtbl.*.Release.?(bb.rtv);
-            _ = bb.back_buffer.lpVtbl.*.Release.?(bb.back_buffer);
-            _ = context.?.lpVtbl.*.Release.?(context.?);
-            _ = device.?.lpVtbl.*.Release.?(device.?);
-            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
+            com.release(tri.scene_cb);
+            com.release(tri.vertex_buffer);
+            com.release(tri.input_layout);
+            com.release(tri.pixel_shader);
+            com.release(tri.vertex_shader);
+            com.release(checker.srv);
+            com.release(checker.texture);
+            com.release(bb.rtv);
+            com.release(bb.back_buffer);
+            com.release(context.?);
+            com.release(device.?);
+            com.release(swap_chain.?);
             log.err("d3d11 create capture texture failed: {}", .{err});
             return null;
         };
@@ -194,29 +195,25 @@ const WindowsRenderer = struct {
 
     fn isWindowedStereoSupported(self: *WindowsRenderer) bool {
         var dxgi_device_raw: ?*anyopaque = null;
-        const hr_qi = self.device.lpVtbl.*.QueryInterface.?(
-            self.device,
-            &com_iids.IID_IDXGIDevice,
-            ptrAs(*?*anyopaque, &dxgi_device_raw),
-        );
+        const hr_qi = com.queryInterface(self.device, &com_iids.IID_IDXGIDevice, com.cast(*?*anyopaque, &dxgi_device_raw));
         if (hr_qi != win.S_OK or dxgi_device_raw == null) return false;
-        const dxgi_device: *dxgi_if_manual.IDXGIDevice = ptrAs(*dxgi_if_manual.IDXGIDevice, dxgi_device_raw.?);
-        defer _ = dxgi_device.lpVtbl.Release(dxgi_device);
+        const dxgi_device: *dxgi_if_manual.IDXGIDevice = com.cast(*dxgi_if_manual.IDXGIDevice, dxgi_device_raw.?);
+        defer com.release(dxgi_device);
 
         var adapter: ?*dxgi_if_manual.IDXGIAdapter = null;
         const hr_adapter = dxgi_device.lpVtbl.GetAdapter(dxgi_device, &adapter);
         if (hr_adapter != win.S_OK or adapter == null) return false;
-        defer _ = adapter.?.lpVtbl.Release(adapter.?);
+        defer com.release(adapter.?);
 
         var factory_raw: ?*anyopaque = null;
         const hr_factory = adapter.?.lpVtbl.GetParent(
             adapter.?,
             &com_iids.IID_IDXGIFactory2,
-            ptrAs(*?*anyopaque, &factory_raw),
+            com.cast(*?*anyopaque, &factory_raw),
         );
         if (hr_factory != win.S_OK or factory_raw == null) return false;
-        const factory2: *dxgi_manual.IDXGIFactory2 = ptrAs(*dxgi_manual.IDXGIFactory2, factory_raw.?);
-        defer _ = factory2.lpVtbl.Release(factory2);
+        const factory2: *dxgi_manual.IDXGIFactory2 = com.cast(*dxgi_manual.IDXGIFactory2, factory_raw.?);
+        defer com.release(factory2);
 
         return factory2.lpVtbl.IsWindowedStereoEnabled(factory2) == win.TRUE;
     }
@@ -273,18 +270,18 @@ const WindowsRenderer = struct {
     fn compileShader(source: []const u8, entry: []const u8, target: []const u8) !*d3dcompiler_manual.ID3DBlob {
         var code: ?*d3dcompiler_manual.ID3DBlob = null;
         var errors: ?*d3dcompiler_manual.ID3DBlob = null;
-        const hr = d3dcompiler_manual.compile(source, ptrAs([*:0]const u8, entry.ptr), ptrAs([*:0]const u8, target.ptr), &code, &errors);
+        const hr = d3dcompiler_manual.compile(source, com.cast([*:0]const u8, entry.ptr), com.cast([*:0]const u8, target.ptr), &code, &errors);
         if (hr != win.S_OK or code == null) {
             if (errors) |e| {
                 const msg_ptr: [*]const u8 = @ptrFromInt(@intFromPtr(e.lpVtbl.GetBufferPointer(e)));
                 const msg_len: usize = e.lpVtbl.GetBufferSize(e);
                 const msg = msg_ptr[0..msg_len];
                 log.err("hlsl compile failed: {s}", .{msg});
-                _ = e.lpVtbl.Release(e);
+                com.release(e);
             }
             return error.D3D11CompileShaderFailed;
         }
-        if (errors) |e| _ = e.lpVtbl.Release(e);
+        if (errors) |e| com.release(e);
         return code.?;
     }
 
@@ -488,9 +485,9 @@ const WindowsRenderer = struct {
         ;
 
         const vs_blob = try compileShader(vs_src, "main\x00", "vs_4_0\x00");
-        defer _ = vs_blob.lpVtbl.Release(vs_blob);
+        defer com.release(vs_blob);
         const ps_blob = try compileShader(ps_src, "main\x00", "ps_4_0\x00");
-        defer _ = ps_blob.lpVtbl.Release(ps_blob);
+        defer com.release(ps_blob);
 
         var vs: ?*d3d11_if.ID3D11VertexShader = null;
         var ps: ?*d3d11_if.ID3D11PixelShader = null;
@@ -512,13 +509,13 @@ const WindowsRenderer = struct {
             &ps,
         );
         if (hr_ps != win.S_OK or ps == null) {
-            _ = vs.?.lpVtbl.*.Release.?(vs.?);
+            com.release(vs.?);
             return error.D3D11CreatePixelShaderFailed;
         }
 
         var elems = [_]d3d11_manual.D3D11_INPUT_ELEMENT_DESC{
             .{
-                .SemanticName = ptrAs([*c]const u8, "POSITION\x00".ptr),
+                .SemanticName = com.cast([*c]const u8, "POSITION\x00".ptr),
                 .SemanticIndex = 0,
                 .Format = dxgi_manual.DXGI_FORMAT_R32G32B32_FLOAT,
                 .InputSlot = 0,
@@ -527,7 +524,7 @@ const WindowsRenderer = struct {
                 .InstanceDataStepRate = 0,
             },
             .{
-                .SemanticName = ptrAs([*c]const u8, "COLOR\x00".ptr),
+                .SemanticName = com.cast([*c]const u8, "COLOR\x00".ptr),
                 .SemanticIndex = 0,
                 .Format = dxgi_manual.DXGI_FORMAT_R32G32B32A32_FLOAT,
                 .InputSlot = 0,
@@ -547,8 +544,8 @@ const WindowsRenderer = struct {
             &layout,
         );
         if (hr_layout != win.S_OK or layout == null) {
-            _ = ps.?.lpVtbl.*.Release.?(ps.?);
-            _ = vs.?.lpVtbl.*.Release.?(vs.?);
+            com.release(ps.?);
+            com.release(vs.?);
             return error.D3D11CreateInputLayoutFailed;
         }
 
@@ -566,9 +563,9 @@ const WindowsRenderer = struct {
             &vb,
         );
         if (hr_vb != win.S_OK or vb == null) {
-            _ = layout.?.lpVtbl.*.Release.?(layout.?);
-            _ = ps.?.lpVtbl.*.Release.?(ps.?);
-            _ = vs.?.lpVtbl.*.Release.?(vs.?);
+            com.release(layout.?);
+            com.release(ps.?);
+            com.release(vs.?);
             return error.D3D11CreateVertexBufferFailed;
         }
 
@@ -580,10 +577,10 @@ const WindowsRenderer = struct {
         var scene_cb: ?*d3d11_if.ID3D11Buffer = null;
         const hr_cb = device.lpVtbl.*.CreateBuffer.?(device, @as(*const d3d11_manual.D3D11_BUFFER_DESC, @ptrCast(&cb_desc)), null, &scene_cb);
         if (hr_cb != win.S_OK or scene_cb == null) {
-            _ = vb.?.lpVtbl.*.Release.?(vb.?);
-            _ = layout.?.lpVtbl.*.Release.?(layout.?);
-            _ = ps.?.lpVtbl.*.Release.?(ps.?);
-            _ = vs.?.lpVtbl.*.Release.?(vs.?);
+            com.release(vb.?);
+            com.release(layout.?);
+            com.release(ps.?);
+            com.release(vs.?);
             return error.D3D11CreateConstantBufferFailed;
         }
 
@@ -622,7 +619,7 @@ const WindowsRenderer = struct {
         tex_desc.BindFlags = d3d11_manual.D3D11_BIND_SHADER_RESOURCE;
 
         var init_data: d3d11_manual.D3D11_SUBRESOURCE_DATA = std.mem.zeroes(d3d11_manual.D3D11_SUBRESOURCE_DATA);
-        init_data.pSysMem = ptrAs(*const anyopaque, pixels.ptr);
+        init_data.pSysMem = com.cast(*const anyopaque, pixels.ptr);
         init_data.SysMemPitch = tex_w * 4;
 
         var texture: ?*d3d11_if.ID3D11Texture2D = null;
@@ -637,12 +634,12 @@ const WindowsRenderer = struct {
         var srv: ?*d3d11_if.ID3D11ShaderResourceView = null;
         const hr_srv = device.lpVtbl.*.CreateShaderResourceView.?(
             device,
-            ptrAs(*d3d11_if.ID3D11Resource, texture.?),
+            com.cast(*d3d11_if.ID3D11Resource, texture.?),
             null,
             &srv,
         );
         if (hr_srv != win.S_OK or srv == null) {
-            _ = texture.?.lpVtbl.*.Release.?(ptrAs(*d3d11_if.ID3D11Texture2D, texture.?));
+            com.release(texture.?);
             return error.D3D11CreateShaderResourceViewFailed;
         }
 
@@ -656,15 +653,15 @@ const WindowsRenderer = struct {
             swap_chain,
             0,
             &com_iids.IID_ID3D11Texture2D,
-            ptrAs(*?*anyopaque, &back_buffer_raw),
+            com.cast(*?*anyopaque, &back_buffer_raw),
         );
         if (hr_buf != win.S_OK or back_buffer_raw == null) return error.D3D11GetBackBufferFailed;
-        const back_buffer: *d3d11_if.ID3D11Texture2D = ptrAs(*d3d11_if.ID3D11Texture2D, back_buffer_raw.?);
+        const back_buffer: *d3d11_if.ID3D11Texture2D = com.cast(*d3d11_if.ID3D11Texture2D, back_buffer_raw.?);
 
         var rtv: ?*d3d11_if.ID3D11RenderTargetView = null;
-        const hr_rtv = device.lpVtbl.*.CreateRenderTargetView.?(device, ptrAs(*d3d11_if.ID3D11Resource, back_buffer), null, &rtv);
+        const hr_rtv = device.lpVtbl.*.CreateRenderTargetView.?(device, com.cast(*d3d11_if.ID3D11Resource, back_buffer), null, &rtv);
         if (hr_rtv != win.S_OK or rtv == null) {
-            _ = back_buffer.lpVtbl.*.Release.?(back_buffer);
+            com.release(back_buffer);
             return error.D3D11CreateRTVFailed;
         }
         return .{ .back_buffer = back_buffer, .rtv = rtv.? };
@@ -1003,8 +1000,8 @@ const WindowsRenderer = struct {
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*d3d11_if.ID3D11Resource, self.back_buffer),
-            ptrAs(*d3d11_if.ID3D11Resource, self.checker_texture),
+            com.cast(*d3d11_if.ID3D11Resource, self.back_buffer),
+            com.cast(*d3d11_if.ID3D11Resource, self.checker_texture),
         );
 
         const stride = [_]win.UINT{@sizeOf(f32) * 7};
@@ -1022,7 +1019,7 @@ const WindowsRenderer = struct {
         var mapped_cb: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
         const hr_cb = self.context.lpVtbl.*.Map.?(
             self.context,
-            ptrAs(*d3d11_if.ID3D11Resource, self.scene_cb),
+            com.cast(*d3d11_if.ID3D11Resource, self.scene_cb),
             0,
             d3d11_manual.D3D11_MAP_WRITE_DISCARD,
             0,
@@ -1030,9 +1027,9 @@ const WindowsRenderer = struct {
         );
         if (hr_cb == win.S_OK and mapped_cb.pData != null) {
             const src = std.mem.asBytes(&cb_data);
-            const dst = ptrAs([*]u8, mapped_cb.pData.?)[0..src.len];
+            const dst = com.cast([*]u8, mapped_cb.pData.?)[0..src.len];
             @memcpy(dst, src);
-            self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, self.scene_cb), 0);
+            self.context.lpVtbl.*.Unmap.?(self.context, com.cast(*d3d11_if.ID3D11Resource, self.scene_cb), 0);
         } else {
             log.err("d3d11 map scene constants failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_cb)))});
         }
@@ -1050,7 +1047,7 @@ const WindowsRenderer = struct {
             var mapped: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
             const hr_map = self.context.lpVtbl.*.Map.?(
                 self.context,
-                ptrAs(*d3d11_if.ID3D11Resource, self.vertex_buffer),
+                com.cast(*d3d11_if.ID3D11Resource, self.vertex_buffer),
                 0,
                 d3d11_manual.D3D11_MAP_WRITE_DISCARD,
                 0,
@@ -1058,9 +1055,9 @@ const WindowsRenderer = struct {
             );
             if (hr_map == win.S_OK and mapped.pData != null) {
                 const src = std.mem.sliceAsBytes(verts);
-                const dst = ptrAs([*]u8, mapped.pData.?)[0..src.len];
+                const dst = com.cast([*]u8, mapped.pData.?)[0..src.len];
                 @memcpy(dst, src);
-                self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, self.vertex_buffer), 0);
+                self.context.lpVtbl.*.Unmap.?(self.context, com.cast(*d3d11_if.ID3D11Resource, self.vertex_buffer), 0);
                 self.context.lpVtbl.*.Draw.?(self.context, vertex_count, 0);
             } else {
                 log.err("d3d11 map vertex buffer failed hr=0x{x}", .{@as(u32, @bitCast(@as(i32, hr_map)))});
@@ -1069,8 +1066,8 @@ const WindowsRenderer = struct {
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*d3d11_if.ID3D11Resource, self.capture_texture),
-            ptrAs(*d3d11_if.ID3D11Resource, self.back_buffer),
+            com.cast(*d3d11_if.ID3D11Resource, self.capture_texture),
+            com.cast(*d3d11_if.ID3D11Resource, self.back_buffer),
         );
         _ = self.swap_chain.lpVtbl.Present(self.swap_chain, 1, 0);
     }
@@ -1079,8 +1076,8 @@ const WindowsRenderer = struct {
         @setRuntimeSafety(false);
         if (width == 0 or height == 0) return;
 
-        _ = self.rtv.lpVtbl.*.Release.?(self.rtv);
-        _ = self.back_buffer.lpVtbl.*.Release.?(self.back_buffer);
+        com.release(self.rtv);
+        com.release(self.back_buffer);
         const hr = self.swap_chain.lpVtbl.ResizeBuffers(self.swap_chain, 0, width, height, dxgi_manual.DXGI_FORMAT_UNKNOWN, 0);
         if (hr != win.S_OK) return error.D3D11ResizeBuffersFailed;
 
@@ -1088,31 +1085,31 @@ const WindowsRenderer = struct {
         self.back_buffer = bb.back_buffer;
         self.rtv = bb.rtv;
 
-        _ = self.checker_srv.lpVtbl.*.Release.?(self.checker_srv);
-        _ = self.checker_texture.lpVtbl.*.Release.?(self.checker_texture);
+        com.release(self.checker_srv);
+        com.release(self.checker_texture);
         const checker = try createCheckerTexture(self.device, width, height);
         self.checker_texture = checker.texture;
         self.checker_srv = checker.srv;
 
-        _ = self.capture_texture.lpVtbl.*.Release.?(self.capture_texture);
+        com.release(self.capture_texture);
         self.capture_texture = try createCaptureTexture(self.device, width, height);
     }
 
     pub fn deinit(self: *WindowsRenderer) void {
         @setRuntimeSafety(false);
-        _ = self.vertex_buffer.lpVtbl.*.Release.?(self.vertex_buffer);
-        _ = self.scene_cb.lpVtbl.*.Release.?(self.scene_cb);
-        _ = self.input_layout.lpVtbl.*.Release.?(self.input_layout);
-        _ = self.pixel_shader.lpVtbl.*.Release.?(self.pixel_shader);
-        _ = self.vertex_shader.lpVtbl.*.Release.?(self.vertex_shader);
-        _ = self.checker_srv.lpVtbl.*.Release.?(self.checker_srv);
-        _ = self.checker_texture.lpVtbl.*.Release.?(self.checker_texture);
-        _ = self.capture_texture.lpVtbl.*.Release.?(self.capture_texture);
-        _ = self.rtv.lpVtbl.*.Release.?(self.rtv);
-        _ = self.back_buffer.lpVtbl.*.Release.?(self.back_buffer);
-        _ = self.context.lpVtbl.*.Release.?(self.context);
-        _ = self.device.lpVtbl.*.Release.?(self.device);
-        _ = self.swap_chain.lpVtbl.Release(self.swap_chain);
+        com.release(self.vertex_buffer);
+        com.release(self.scene_cb);
+        com.release(self.input_layout);
+        com.release(self.pixel_shader);
+        com.release(self.vertex_shader);
+        com.release(self.checker_srv);
+        com.release(self.checker_texture);
+        com.release(self.capture_texture);
+        com.release(self.rtv);
+        com.release(self.back_buffer);
+        com.release(self.context);
+        com.release(self.device);
+        com.release(self.swap_chain);
     }
 
     pub fn captureScreenshot(self: *WindowsRenderer, path: []const u8, width: u32, height: u32) !void {
@@ -1135,25 +1132,25 @@ const WindowsRenderer = struct {
             &staging,
         );
         if (hr_tex != win.S_OK or staging == null) return error.D3D11CreateStagingTextureFailed;
-        defer _ = staging.?.lpVtbl.*.Release.?(staging.?);
+        defer com.release(staging.?);
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
-            ptrAs(*d3d11_if.ID3D11Resource, staging.?),
-            ptrAs(*d3d11_if.ID3D11Resource, self.capture_texture),
+            com.cast(*d3d11_if.ID3D11Resource, staging.?),
+            com.cast(*d3d11_if.ID3D11Resource, self.capture_texture),
         );
 
         var mapped: d3d11_manual.D3D11_MAPPED_SUBRESOURCE = std.mem.zeroes(d3d11_manual.D3D11_MAPPED_SUBRESOURCE);
         const hr_map = self.context.lpVtbl.*.Map.?(
             self.context,
-            ptrAs(*d3d11_if.ID3D11Resource, staging.?),
+            com.cast(*d3d11_if.ID3D11Resource, staging.?),
             0,
             d3d11_manual.D3D11_MAP_READ,
             0,
             @as(*d3d11_manual.D3D11_MAPPED_SUBRESOURCE, @ptrCast(&mapped)),
         );
         if (hr_map != win.S_OK) return error.D3D11MapStagingFailed;
-        defer self.context.lpVtbl.*.Unmap.?(self.context, ptrAs(*d3d11_if.ID3D11Resource, staging.?), 0);
+        defer self.context.lpVtbl.*.Unmap.?(self.context, com.cast(*d3d11_if.ID3D11Resource, staging.?), 0);
 
         var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
         defer file.close();
@@ -1162,7 +1159,7 @@ const WindowsRenderer = struct {
         try file.writeAll(header);
 
         const row_pitch: usize = @intCast(mapped.RowPitch);
-        const bytes: [*]const u8 = ptrAs([*]const u8, mapped.pData.?);
+        const bytes: [*]const u8 = com.cast([*]const u8, mapped.pData.?);
         var y: usize = 0;
         while (y < height) : (y += 1) {
             const row = bytes + y * row_pitch;
@@ -1179,7 +1176,3 @@ const WindowsRenderer = struct {
         }
     }
 };
-
-fn ptrAs(comptime T: type, p: anytype) T {
-    return @ptrFromInt(@intFromPtr(p));
-}
