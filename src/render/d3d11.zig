@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
 const d3d_c = @import("../platform/win32/d3d_c.zig");
+const d3d11_core = @import("../platform/win32/d3d11_core_manual.zig");
+const d3d11_if = @import("../platform/win32/d3d11_interfaces_manual.zig");
 const d3d11_manual = @import("../platform/win32/d3d11_manual.zig");
 const d3dcompiler_manual = @import("../platform/win32/d3dcompiler_manual.zig");
 const dxgi_manual = @import("../platform/win32/dxgi_manual.zig");
@@ -54,8 +56,8 @@ const WindowsRenderer = struct {
     const LegendCharSpacing: f32 = 0.010;
 
     swap_chain: *dxgi_if_manual.IDXGISwapChain,
-    device: *c.ID3D11Device,
-    context: *c.ID3D11DeviceContext,
+    device: *d3d11_if.ID3D11Device,
+    context: *d3d11_if.ID3D11DeviceContext,
     back_buffer: *c.ID3D11Texture2D,
     rtv: *c.ID3D11RenderTargetView,
     checker_texture: *c.ID3D11Texture2D,
@@ -72,13 +74,13 @@ const WindowsRenderer = struct {
         @setRuntimeSafety(false);
         const desc = dxgi_manual.makeSwapChainDesc(hwnd, width, height);
 
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE)) |r| {
+        if (try tryCreate(desc, d3d11_core.D3D_DRIVER_TYPE_HARDWARE)) |r| {
             log.info("d3d11 init: driver=hardware", .{});
             return r;
         }
 
         log.err("d3d11 hardware init failed, retrying with WARP", .{});
-        if (try tryCreate(desc, c.D3D_DRIVER_TYPE_WARP)) |r| {
+        if (try tryCreate(desc, d3d11_core.D3D_DRIVER_TYPE_WARP)) |r| {
             log.info("d3d11 init: driver=warp", .{});
             return r;
         }
@@ -86,23 +88,17 @@ const WindowsRenderer = struct {
         return error.D3D11CreateDeviceAndSwapChainFailed;
     }
 
-    fn tryCreate(desc: dxgi_manual.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE) !?WindowsRenderer {
+    fn tryCreate(desc: dxgi_manual.DXGI_SWAP_CHAIN_DESC, driver: d3d11_core.D3D_DRIVER_TYPE) !?WindowsRenderer {
         @setRuntimeSafety(false);
-        var swap_chain: ?*c.IDXGISwapChain = null;
-        var device: ?*c.ID3D11Device = null;
-        var context: ?*c.ID3D11DeviceContext = null;
-        var feature_level: c.D3D_FEATURE_LEVEL = undefined;
+        var swap_chain: ?*dxgi_if_manual.IDXGISwapChain = null;
+        var device: ?*d3d11_if.ID3D11Device = null;
+        var context: ?*d3d11_if.ID3D11DeviceContext = null;
+        var feature_level: d3d11_core.D3D_FEATURE_LEVEL = undefined;
         var local_desc = desc;
 
-        const hr = c.D3D11CreateDeviceAndSwapChain(
-            null,
+        const hr = d3d11_core.createDeviceAndSwapChain(
             driver,
-            null,
-            c.D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            null,
-            0,
-            c.D3D11_SDK_VERSION,
-            @as(*const c.DXGI_SWAP_CHAIN_DESC, @ptrCast(&local_desc)),
+            &local_desc,
             &swap_chain,
             &device,
             &feature_level,
@@ -114,12 +110,10 @@ const WindowsRenderer = struct {
             return null;
         }
 
-        const swap_chain_manual: *dxgi_if_manual.IDXGISwapChain = @ptrCast(swap_chain.?);
-
-        const bb = createBackBufferAndRTV(device.?, swap_chain_manual) catch |err| {
+        const bb = createBackBufferAndRTV(device.?, swap_chain.?) catch |err| {
             _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
             _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
-            _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
+            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
             log.err("d3d11 create RTV failed: {}", .{err});
             return null;
         };
@@ -129,7 +123,7 @@ const WindowsRenderer = struct {
             _ = bb.back_buffer.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(bb.back_buffer)));
             _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
             _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
-            _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
+            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
             log.err("d3d11 create checker texture failed: {}", .{err});
             return null;
         };
@@ -141,7 +135,7 @@ const WindowsRenderer = struct {
             _ = bb.back_buffer.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(bb.back_buffer)));
             _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
             _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
-            _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
+            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
             log.err("d3d11 create triangle pipeline failed: {}", .{err});
             return null;
         };
@@ -157,13 +151,13 @@ const WindowsRenderer = struct {
             _ = bb.back_buffer.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(bb.back_buffer)));
             _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
             _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
-            _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
+            _ = swap_chain.?.lpVtbl.Release(swap_chain.?);
             log.err("d3d11 create capture texture failed: {}", .{err});
             return null;
         };
 
         return .{
-            .swap_chain = swap_chain_manual,
+            .swap_chain = swap_chain.?,
             .device = device.?,
             .context = context.?,
             .back_buffer = bb.back_buffer,
