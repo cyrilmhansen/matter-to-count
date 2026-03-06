@@ -3,16 +3,10 @@ const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
 const d3d_c = @import("../platform/win32/d3d_c.zig");
 const dxgi_manual = @import("../platform/win32/dxgi_manual.zig");
+const com_iids = @import("../platform/win32/com_iids.zig");
 const log = @import("../util/logging.zig");
 const render_plan = @import("render_plan.zig");
 const c = d3d_c.c;
-
-const IID_IDXGIFactory2 = c.GUID{
-    .Data1 = 0x50c83a1c,
-    .Data2 = 0xe072,
-    .Data3 = 0x4c48,
-    .Data4 = .{ 0x87, 0xb0, 0x36, 0x30, 0xfa, 0x36, 0xa6, 0xd0 },
-};
 
 pub const Renderer = if (builtin.os.tag == .windows) WindowsRenderer else StubRenderer;
 pub const RenderView = enum(u32) {
@@ -204,7 +198,7 @@ const WindowsRenderer = struct {
         var dxgi_device_raw: ?*anyopaque = null;
         const hr_qi = self.device.lpVtbl.*.QueryInterface.?(
             self.device,
-            &c.IID_IDXGIDevice,
+            &com_iids.IID_IDXGIDevice,
             ptrAs(*?*anyopaque, &dxgi_device_raw),
         );
         if (hr_qi != c.S_OK or dxgi_device_raw == null) return false;
@@ -219,7 +213,7 @@ const WindowsRenderer = struct {
         var factory_raw: ?*anyopaque = null;
         const hr_factory = adapter.?.lpVtbl.*.GetParent.?(
             adapter.?,
-            &IID_IDXGIFactory2,
+            &com_iids.IID_IDXGIFactory2,
             ptrAs(*?*anyopaque, &factory_raw),
         );
         if (hr_factory != c.S_OK or factory_raw == null) return false;
@@ -675,7 +669,7 @@ const WindowsRenderer = struct {
         const hr_buf = swap_chain.lpVtbl.*.GetBuffer.?(
             swap_chain,
             0,
-            &c.IID_ID3D11Texture2D,
+            &com_iids.IID_ID3D11Texture2D,
             ptrAs(*?*anyopaque, &back_buffer_raw),
         );
         if (hr_buf != c.S_OK or back_buffer_raw == null) return error.D3D11GetBackBufferFailed;
