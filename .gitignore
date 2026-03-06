@@ -1,0 +1,12 @@
+# Zig build artifacts
+/.zig-cache/
+/zig-out/
+
+# Local runtime compatibility artifacts
+/.steam-compat/
+
+# Gradle / Android build artifacts
+/.gradle/
+/android/.gradle/
+/android/build/
+/android/app/build/

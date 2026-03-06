@@ -20,6 +20,10 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const clean_cmd = b.addSystemCommand(&[_][]const u8{"bash", "scripts/clean.sh"});
+    const clean_step = b.step("clean", "Remove local build/test artifacts");
+    clean_step.dependOn(&clean_cmd.step);
+
     const host_app_test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = b.graph.host,
