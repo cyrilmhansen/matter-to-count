@@ -4,6 +4,5 @@ const builtin = @import("builtin");
 // Keep all D3D/Win32 C header imports behind one module so renderer code can
 // transition to pure Zig bindings incrementally.
 pub const c = if (builtin.os.tag == .windows) @cImport({
-    @cInclude("windows.h");
     @cInclude("d3d11.h");
 }) else struct {};
