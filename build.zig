@@ -23,6 +23,9 @@ pub fn build(b: *std.Build) void {
     const clean_cmd = b.addSystemCommand(&[_][]const u8{"bash", "scripts/clean.sh"});
     const clean_step = b.step("clean", "Remove local build/test artifacts");
     clean_step.dependOn(&clean_cmd.step);
+    const cimport_boundary_cmd = b.addSystemCommand(&[_][]const u8{"bash", "scripts/check_cimport_boundary.sh"});
+    const cimport_boundary_step = b.step("test-cimport-boundary", "Fail if @cImport appears outside the approved boundary module");
+    cimport_boundary_step.dependOn(&cimport_boundary_cmd.step);
 
     const host_app_test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
