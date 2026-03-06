@@ -73,18 +73,7 @@ const WindowsRenderer = struct {
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
-        var desc: c.DXGI_SWAP_CHAIN_DESC = std.mem.zeroes(c.DXGI_SWAP_CHAIN_DESC);
-        desc.BufferDesc.Width = width;
-        desc.BufferDesc.Height = height;
-        desc.BufferDesc.RefreshRate.Numerator = 60;
-        desc.BufferDesc.RefreshRate.Denominator = 1;
-        desc.BufferDesc.Format = c.DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.BufferUsage = c.DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        desc.BufferCount = 1;
-        desc.OutputWindow = @ptrFromInt(@intFromPtr(hwnd.?));
-        desc.Windowed = c.TRUE;
-        desc.SwapEffect = c.DXGI_SWAP_EFFECT_DISCARD;
+        const desc = dxgi_manual.makeSwapChainDesc(hwnd, width, height);
 
         if (try tryCreate(desc, c.D3D_DRIVER_TYPE_HARDWARE)) |r| {
             log.info("d3d11 init: driver=hardware", .{});
@@ -100,7 +89,7 @@ const WindowsRenderer = struct {
         return error.D3D11CreateDeviceAndSwapChainFailed;
     }
 
-    fn tryCreate(desc: c.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE) !?WindowsRenderer {
+    fn tryCreate(desc: dxgi_manual.DXGI_SWAP_CHAIN_DESC, driver: c.D3D_DRIVER_TYPE) !?WindowsRenderer {
         @setRuntimeSafety(false);
         var swap_chain: ?*c.IDXGISwapChain = null;
         var device: ?*c.ID3D11Device = null;
@@ -116,7 +105,7 @@ const WindowsRenderer = struct {
             null,
             0,
             c.D3D11_SDK_VERSION,
-            &local_desc,
+            @as(*const c.DXGI_SWAP_CHAIN_DESC, @ptrCast(&local_desc)),
             &swap_chain,
             &device,
             &feature_level,
