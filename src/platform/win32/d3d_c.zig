@@ -7,5 +7,4 @@ pub const c = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
     @cInclude("d3d11.h");
     @cInclude("dxgi.h");
-    @cInclude("d3dcompiler.h");
 }) else struct {};

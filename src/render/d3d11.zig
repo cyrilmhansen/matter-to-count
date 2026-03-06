@@ -3,6 +3,7 @@ const std = @import("std");
 const win32 = @import("../platform/win32/window.zig");
 const d3d_c = @import("../platform/win32/d3d_c.zig");
 const d3d11_manual = @import("../platform/win32/d3d11_manual.zig");
+const d3dcompiler_manual = @import("../platform/win32/d3dcompiler_manual.zig");
 const dxgi_manual = @import("../platform/win32/dxgi_manual.zig");
 const com_iids = @import("../platform/win32/com_iids.zig");
 const log = @import("../util/logging.zig");
@@ -273,33 +274,21 @@ const WindowsRenderer = struct {
         inst_col: [MaxRaymarchInstances][4]f32, // rgba
     };
 
-    fn compileShader(source: []const u8, entry: []const u8, target: []const u8) !*c.ID3DBlob {
-        var code: ?*c.ID3DBlob = null;
-        var errors: ?*c.ID3DBlob = null;
-        const hr = c.D3DCompile(
-            source.ptr,
-            source.len,
-            null,
-            null,
-            null,
-            ptrAs([*:0]const u8, entry.ptr),
-            ptrAs([*:0]const u8, target.ptr),
-            0,
-            0,
-            &code,
-            &errors,
-        );
+    fn compileShader(source: []const u8, entry: []const u8, target: []const u8) !*d3dcompiler_manual.ID3DBlob {
+        var code: ?*d3dcompiler_manual.ID3DBlob = null;
+        var errors: ?*d3dcompiler_manual.ID3DBlob = null;
+        const hr = d3dcompiler_manual.compile(source, ptrAs([*:0]const u8, entry.ptr), ptrAs([*:0]const u8, target.ptr), &code, &errors);
         if (hr != c.S_OK or code == null) {
             if (errors) |e| {
-                const msg_ptr: [*]const u8 = @ptrFromInt(@intFromPtr(e.lpVtbl.*.GetBufferPointer.?(e)));
-                const msg_len: usize = @intCast(e.lpVtbl.*.GetBufferSize.?(e));
+                const msg_ptr: [*]const u8 = @ptrFromInt(@intFromPtr(e.lpVtbl.GetBufferPointer(e)));
+                const msg_len: usize = e.lpVtbl.GetBufferSize(e);
                 const msg = msg_ptr[0..msg_len];
                 log.err("hlsl compile failed: {s}", .{msg});
-                _ = e.lpVtbl.*.Release.?(e);
+                _ = e.lpVtbl.Release(e);
             }
             return error.D3D11CompileShaderFailed;
         }
-        if (errors) |e| _ = e.lpVtbl.*.Release.?(e);
+        if (errors) |e| _ = e.lpVtbl.Release(e);
         return code.?;
     }
 
@@ -503,17 +492,17 @@ const WindowsRenderer = struct {
         ;
 
         const vs_blob = try compileShader(vs_src, "main\x00", "vs_4_0\x00");
-        defer _ = vs_blob.lpVtbl.*.Release.?(vs_blob);
+        defer _ = vs_blob.lpVtbl.Release(vs_blob);
         const ps_blob = try compileShader(ps_src, "main\x00", "ps_4_0\x00");
-        defer _ = ps_blob.lpVtbl.*.Release.?(ps_blob);
+        defer _ = ps_blob.lpVtbl.Release(ps_blob);
 
         var vs: ?*c.ID3D11VertexShader = null;
         var ps: ?*c.ID3D11PixelShader = null;
 
         const hr_vs = device.lpVtbl.*.CreateVertexShader.?(
             device,
-            vs_blob.lpVtbl.*.GetBufferPointer.?(vs_blob),
-            vs_blob.lpVtbl.*.GetBufferSize.?(vs_blob),
+            vs_blob.lpVtbl.GetBufferPointer(vs_blob),
+            vs_blob.lpVtbl.GetBufferSize(vs_blob),
             null,
             &vs,
         );
@@ -521,8 +510,8 @@ const WindowsRenderer = struct {
 
         const hr_ps = device.lpVtbl.*.CreatePixelShader.?(
             device,
-            ps_blob.lpVtbl.*.GetBufferPointer.?(ps_blob),
-            ps_blob.lpVtbl.*.GetBufferSize.?(ps_blob),
+            ps_blob.lpVtbl.GetBufferPointer(ps_blob),
+            ps_blob.lpVtbl.GetBufferSize(ps_blob),
             null,
             &ps,
         );
@@ -531,14 +520,14 @@ const WindowsRenderer = struct {
             return error.D3D11CreatePixelShaderFailed;
         }
 
-        var elems = [_]c.D3D11_INPUT_ELEMENT_DESC{
+        var elems = [_]d3d11_manual.D3D11_INPUT_ELEMENT_DESC{
             .{
                 .SemanticName = ptrAs([*c]const u8, "POSITION\x00".ptr),
                 .SemanticIndex = 0,
                 .Format = c.DXGI_FORMAT_R32G32B32_FLOAT,
                 .InputSlot = 0,
                 .AlignedByteOffset = 0,
-                .InputSlotClass = c.D3D11_INPUT_PER_VERTEX_DATA,
+                .InputSlotClass = d3d11_manual.D3D11_INPUT_PER_VERTEX_DATA,
                 .InstanceDataStepRate = 0,
             },
             .{
@@ -547,7 +536,7 @@ const WindowsRenderer = struct {
                 .Format = c.DXGI_FORMAT_R32G32B32A32_FLOAT,
                 .InputSlot = 0,
                 .AlignedByteOffset = 12,
-                .InputSlotClass = c.D3D11_INPUT_PER_VERTEX_DATA,
+                .InputSlotClass = d3d11_manual.D3D11_INPUT_PER_VERTEX_DATA,
                 .InstanceDataStepRate = 0,
             },
         };
@@ -555,10 +544,10 @@ const WindowsRenderer = struct {
         var layout: ?*c.ID3D11InputLayout = null;
         const hr_layout = device.lpVtbl.*.CreateInputLayout.?(
             device,
-            &elems,
+            @as([*c]const c.D3D11_INPUT_ELEMENT_DESC, @ptrCast(&elems)),
             elems.len,
-            vs_blob.lpVtbl.*.GetBufferPointer.?(vs_blob),
-            vs_blob.lpVtbl.*.GetBufferSize.?(vs_blob),
+            vs_blob.lpVtbl.GetBufferPointer(vs_blob),
+            vs_blob.lpVtbl.GetBufferSize(vs_blob),
             &layout,
         );
         if (hr_layout != c.S_OK or layout == null) {
@@ -1009,12 +998,12 @@ const WindowsRenderer = struct {
         var rtvs = [_]?*c.ID3D11RenderTargetView{self.rtv};
         self.context.lpVtbl.*.OMSetRenderTargets.?(self.context, 1, &rtvs, null);
 
-        var vp: c.D3D11_VIEWPORT = std.mem.zeroes(c.D3D11_VIEWPORT);
+        var vp: d3d11_manual.D3D11_VIEWPORT = std.mem.zeroes(d3d11_manual.D3D11_VIEWPORT);
         vp.Width = @floatFromInt(width);
         vp.Height = @floatFromInt(height);
         vp.MinDepth = 0.0;
         vp.MaxDepth = 1.0;
-        self.context.lpVtbl.*.RSSetViewports.?(self.context, 1, &vp);
+        self.context.lpVtbl.*.RSSetViewports.?(self.context, 1, @as([*c]const c.D3D11_VIEWPORT, @ptrCast(&vp)));
 
         self.context.lpVtbl.*.CopyResource.?(
             self.context,
@@ -1026,7 +1015,7 @@ const WindowsRenderer = struct {
         const offset = [_]c.UINT{0};
         const vb = [_]?*c.ID3D11Buffer{self.vertex_buffer};
         self.context.lpVtbl.*.IASetInputLayout.?(self.context, self.input_layout);
-        self.context.lpVtbl.*.IASetPrimitiveTopology.?(self.context, c.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        self.context.lpVtbl.*.IASetPrimitiveTopology.?(self.context, d3d11_manual.D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         self.context.lpVtbl.*.IASetVertexBuffers.?(self.context, 0, 1, &vb, &stride, &offset);
         self.context.lpVtbl.*.VSSetShader.?(self.context, self.vertex_shader, null, 0);
         self.context.lpVtbl.*.PSSetShader.?(self.context, self.pixel_shader, null, 0);

@@ -16,6 +16,8 @@ pub const D3D11_CPU_ACCESS_READ: u32 = 0x20000;
 
 pub const D3D11_MAP_READ: u32 = 1;
 pub const D3D11_MAP_WRITE_DISCARD: u32 = 4;
+pub const D3D11_INPUT_PER_VERTEX_DATA: u32 = 0;
+pub const D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST: u32 = 4;
 
 pub const D3D11_TEXTURE2D_DESC = if (builtin.os.tag == .windows) extern struct {
     Width: c.UINT,
@@ -51,3 +53,21 @@ pub const D3D11_MAPPED_SUBRESOURCE = if (builtin.os.tag == .windows) extern stru
     DepthPitch: c.UINT,
 } else struct {};
 
+pub const D3D11_INPUT_ELEMENT_DESC = if (builtin.os.tag == .windows) extern struct {
+    SemanticName: [*c]const u8,
+    SemanticIndex: c.UINT,
+    Format: c.DXGI_FORMAT,
+    InputSlot: c.UINT,
+    AlignedByteOffset: c.UINT,
+    InputSlotClass: c.UINT,
+    InstanceDataStepRate: c.UINT,
+} else struct {};
+
+pub const D3D11_VIEWPORT = if (builtin.os.tag == .windows) extern struct {
+    TopLeftX: f32,
+    TopLeftY: f32,
+    Width: f32,
+    Height: f32,
+    MinDepth: f32,
+    MaxDepth: f32,
+} else struct {};
