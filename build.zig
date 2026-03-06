@@ -69,6 +69,8 @@ pub fn build(b: *std.Build) void {
     check_cmd.step.dependOn(&exe_win64.step);
     const check_win64_exe_step = b.step("check-win64-exe", "Build and sanity-check Win64 executable structure/imports");
     check_win64_exe_step.dependOn(&check_cmd.step);
+    const test_win64_imports_step = b.step("test-win64-imports", "Fail if Win64 executable imports DLLs outside the approved allowlist");
+    test_win64_imports_step.dependOn(&check_cmd.step);
 
     const install_win64 = b.addInstallArtifact(exe_win64, .{});
     install_win64.step.dependOn(&check_cmd.step);

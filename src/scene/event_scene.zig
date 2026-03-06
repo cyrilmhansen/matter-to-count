@@ -1,6 +1,7 @@
 const std = @import("std");
 const event = @import("../events/event.zig");
 const tape = @import("../events/tape.zig");
+const motion = @import("../choreo/motion.zig");
 const number = @import("../math/number.zig");
 const addition = @import("../math/addition.zig");
 const subtraction = @import("../math/subtraction.zig");
@@ -178,15 +179,12 @@ fn deriveCamera(t: tape.EventTape, sample: TimeSample, is_finalized: bool, mode:
 }
 
 fn packetProgress(start_substep: u16, phase: f32) f32 {
-    const start = @as(f32, @floatFromInt(start_substep)) / 100.0;
+    const start = clampPhase(@as(f32, @floatFromInt(start_substep)) / 100.0);
     const p = clampPhase(phase);
+    if (start >= 1.0) return if (p >= 1.0) 1.0 else 0.0;
     if (p <= start) return 0.0;
-    const den = 1.0 - start;
-    if (den <= 0.0) return 1.0;
-    const v = (p - start) / den;
-    if (v < 0.0) return 0.0;
-    if (v > 1.0) return 1.0;
-    return v;
+    const window = 1.0 - start;
+    return clampPhase((p - start) / window);
 }
 
 fn pushPacketEntity(
@@ -201,36 +199,18 @@ fn pushPacketEntity(
     phase: f32,
 ) !void {
     const p = packetProgress(substep, phase);
-    const x0 = @as(f32, @floatFromInt(src_column));
-    const x1 = @as(f32, @floatFromInt(dst_column));
-    const dx = x1 - x0;
-    const arc = @sin(p * std.math.pi);
-
-    var pos_y: f32 = 0.5;
-    var pos_z: f32 = 0.08;
-    var yaw_deg: f32 = dx * 18.0;
-    var scale: f32 = 1.05;
-    switch (role) {
-        .carry_packet => {
-            pos_y = 0.56 + arc * 0.10;
-            pos_z = 0.14 + arc * 0.22;
-            yaw_deg = dx * 24.0;
-            scale = 1.12;
+    const transform = switch (role) {
+        .carry_packet => motion.calcCarryTransform(p, src_column, dst_column),
+        .borrow_packet => motion.calcBorrowTransform(p, src_column, dst_column, value),
+        .shift_packet => motion.calcShiftTransform(p, src_column, dst_column),
+        else => motion.Transform{
+            .pos_x = @as(f32, @floatFromInt(src_column)),
+            .pos_y = 0.5,
+            .pos_z = 0.08,
+            .yaw_deg = 0.0,
+            .scale = 1.0,
         },
-        .borrow_packet => {
-            pos_y = 0.44 + arc * 0.08;
-            pos_z = 0.10 + arc * 0.16;
-            yaw_deg = dx * 20.0;
-            scale = 1.08;
-        },
-        .shift_packet => {
-            pos_y = 0.50 + (p - 0.5) * 0.04;
-            pos_z = 0.08 + arc * 0.10;
-            yaw_deg = dx * 14.0;
-            scale = 1.04;
-        },
-        else => {},
-    }
+    };
 
     try entities.append(allocator, .{
         .id = next_id.*,
@@ -239,11 +219,11 @@ fn pushPacketEntity(
         .value = value,
         .visible = true,
         .in_transit = true,
-        .pos_x = x0 + (x1 - x0) * p,
-        .pos_y = pos_y,
-        .pos_z = pos_z,
-        .scale = scale,
-        .yaw_deg = yaw_deg,
+        .pos_x = transform.pos_x,
+        .pos_y = transform.pos_y,
+        .pos_z = transform.pos_z,
+        .scale = transform.scale,
+        .yaw_deg = transform.yaw_deg,
         .emissive = .highlight,
     });
     next_id.* += 1;
@@ -417,6 +397,14 @@ fn firstRoleEntity(scene: ArithmeticSceneState, role: EntityRole) ?Entity {
         if (e.role == role and e.visible) return e;
     }
     return null;
+}
+
+test "packet progress normalizes strictly to active phase window" {
+    try std.testing.expectEqual(@as(f32, 0.0), packetProgress(20, -0.5));
+    try std.testing.expectEqual(@as(f32, 0.0), packetProgress(20, 0.2));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), packetProgress(20, 0.6), 0.0001);
+    try std.testing.expectEqual(@as(f32, 1.0), packetProgress(20, 1.5));
+    try std.testing.expectEqual(@as(f32, 1.0), packetProgress(100, 1.0));
 }
 
 test "scene mapping: add single carry exposes carry packet in transit" {

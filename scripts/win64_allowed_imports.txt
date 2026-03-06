@@ -1,0 +1,11 @@
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+d3d11.dll
+d3dcompiler_47.dll
+kernel32.dll
+ntdll.dll
+user32.dll

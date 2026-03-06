@@ -2,6 +2,8 @@
 set -euo pipefail
 
 export LC_ALL=C
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ALLOWLIST="${SCRIPT_DIR}/win64_allowed_imports.txt"
 
 EXE_PATH="${1:-${SMOKE_EXE:-}}"
 if [[ -z "${EXE_PATH}" ]]; then
@@ -56,6 +58,29 @@ if command -v objdump >/dev/null 2>&1; then
   if ! grep -Eq "DLL Name: (USER32\.dll|user32\.dll)" <<<"${objdump_out}"; then
     echo "ERROR: expected USER32 import not found" >&2
     exit 15
+  fi
+
+  if [[ ! -f "${ALLOWLIST}" ]]; then
+    echo "ERROR: missing import allowlist: ${ALLOWLIST}" >&2
+    exit 17
+  fi
+  mapfile -t imports < <(grep -E "DLL Name:" <<<"${objdump_out}" | sed -E 's/^.*DLL Name: *//' | tr '[:upper:]' '[:lower:]' | sort -u)
+  mapfile -t allowed < <(grep -E '^[a-z0-9._-]+$' "${ALLOWLIST}" | tr '[:upper:]' '[:lower:]' | sort -u)
+  if [[ "${#allowed[@]}" -eq 0 ]]; then
+    echo "ERROR: import allowlist is empty: ${ALLOWLIST}" >&2
+    exit 18
+  fi
+  extra=()
+  for dll in "${imports[@]}"; do
+    if ! printf '%s\n' "${allowed[@]}" | grep -qx "${dll}"; then
+      extra+=("${dll}")
+    fi
+  done
+  if [[ "${#extra[@]}" -gt 0 ]]; then
+    echo "ERROR: unexpected DLL imports detected:" >&2
+    printf '  - %s\n' "${extra[@]}" >&2
+    echo "Update ${ALLOWLIST} only if this dependency change is intentional." >&2
+    exit 19
   fi
 else
   echo "[objdump] not available, skipping import checks"

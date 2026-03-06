@@ -268,6 +268,22 @@ It stages decisions that were already made upstream.
 
 This layer should produce animation that feels intentional, readable, and satisfying without breaking semantic clarity.
 
+#### 6.3.1. The Formal Motion Contract
+
+Choreography must never be guessed or hardcoded inline within scene builders.
+Every visual operation such as carry, borrow, shift, or settle should be defined as a discrete visual algorithm in `src/choreo/motion.zig`.
+
+A visual algorithm consists of three strict components:
+
+1. **Normalized time window (`p`)** extracted from event tape logical time and mapped to `0.0 <= p <= 1.0`.
+2. **Easing function** that converts linear progress into perceived physical weight, such as `easeOutCubic(p)` or `easeInOutSine(p)`.
+3. **Spatial path equation** that defines how position and rotation evolve as a function of `p`.
+
+Example carry motion:
+
+* `X(p) = lerp(src_col, dst_col, easeOutCubic(p))`
+* `Y(p) = baseline_y + max_height * sin(p * pi)`
+
 ---
 
 ## 6.4. Scene layer
@@ -747,6 +763,7 @@ matter-to-count/
 │   │   ├── clip.zig
 │   │   ├── timeline.zig
 │   │   ├── easing.zig
+│   │   ├── motion.zig
 │   │   ├── camera_plan.zig
 │   │   └── builder.zig
 │   ├── scene/
@@ -1240,6 +1257,27 @@ RenderFrame
 ```
 
 This keeps the renderer focused on drawing rather than interpreting semantics.
+
+---
+
+## 18.8. Motion model (choreography)
+
+### EasingKind
+
+```text
+EasingKind
+- linear
+- ease_in_cubic
+- ease_out_cubic
+- ease_in_out_sine
+```
+
+### MotionPath
+
+```text
+MotionPath
+- eval(p: f32, src: Transform, dst: Transform) -> Transform
+```
 
 ---
 

@@ -9,6 +9,8 @@ const scene_controller = @import("app/scene_controller.zig");
 
 const Config = struct {
     smoke: bool = false,
+    loop: bool = false,
+    display_3d: bool = false,
     frames: u32 = 120,
     seed: u64 = 1,
     width: u32 = 1280,
@@ -29,6 +31,10 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
         const arg = argv[i];
         if (std.mem.eql(u8, arg, "--smoke")) {
             cfg.smoke = true;
+        } else if (std.mem.eql(u8, arg, "--loop")) {
+            cfg.loop = true;
+        } else if (std.mem.eql(u8, arg, "--display-3d")) {
+            cfg.display_3d = true;
         } else if (std.mem.eql(u8, arg, "--frames")) {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
@@ -89,13 +95,14 @@ pub fn main() !void {
 
     const cfg = try parseArgs(allocator);
     defer if (cfg.screenshot_out) |p| allocator.free(p);
+    const should_loop = cfg.loop and !cfg.smoke;
 
     var clock = time.FixedClock.init(1.0 / 60.0);
     const scene = try scene_builder.buildSimpleDeterministicScene(allocator, cfg.seed);
     defer allocator.free(scene.dots);
 
     if (builtin.os.tag == .windows) {
-        try app.run(cfg.frames, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode, cfg.render_view);
+        try app.run(cfg.frames, should_loop, cfg.display_3d, cfg.width, cfg.height, cfg.screenshot_out, cfg.scene_kind, cfg.camera_mode, cfg.render_view);
     }
 
     var frame: u32 = 0;
@@ -125,4 +132,6 @@ test {
     _ = @import("math/shift.zig");
     _ = @import("math/multiplication.zig");
     _ = @import("events/tape.zig");
+    _ = @import("choreo/easing.zig");
+    _ = @import("choreo/motion.zig");
 }

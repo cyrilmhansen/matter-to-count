@@ -8,6 +8,7 @@ const c = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
     @cInclude("d3d11.h");
     @cInclude("dxgi.h");
+    @cInclude("dxgi1_2.h");
     @cInclude("d3dcompiler.h");
 }) else struct {};
 
@@ -17,10 +18,23 @@ pub const RenderView = enum(u32) {
     depth = 1,
     role_id = 2,
 };
+pub const Display3DStatus = struct {
+    requested: bool,
+    enabled: bool,
+    supported: bool,
+};
 
 const StubRenderer = struct {
     pub fn init(_: win32.HWND, _: u32, _: u32) !StubRenderer {
         return error.UnsupportedPlatform;
+    }
+
+    pub fn setDisplay3DMode(_: *StubRenderer, enable: bool) Display3DStatus {
+        return .{
+            .requested = enable,
+            .enabled = false,
+            .supported = false,
+        };
     }
 
     pub fn render(_: *StubRenderer, _: u32, _: u32, _: render_plan.RenderPlan, _: []const u8, _: RenderView) void {}
@@ -53,6 +67,7 @@ const WindowsRenderer = struct {
     input_layout: *c.ID3D11InputLayout,
     vertex_buffer: *c.ID3D11Buffer,
     scene_cb: *c.ID3D11Buffer,
+    display_3d_active: bool,
 
     pub fn init(hwnd: win32.HWND, width: u32, height: u32) !WindowsRenderer {
         @setRuntimeSafety(false);
@@ -171,7 +186,56 @@ const WindowsRenderer = struct {
             .input_layout = tri.input_layout,
             .vertex_buffer = tri.vertex_buffer,
             .scene_cb = tri.scene_cb,
+            .display_3d_active = false,
         };
+    }
+
+    pub fn setDisplay3DMode(self: *WindowsRenderer, enable: bool) Display3DStatus {
+        if (!enable) {
+            self.display_3d_active = false;
+            return .{
+                .requested = false,
+                .enabled = false,
+                .supported = false,
+            };
+        }
+
+        const supported = self.isWindowedStereoSupported();
+        self.display_3d_active = supported;
+        return .{
+            .requested = true,
+            .enabled = supported,
+            .supported = supported,
+        };
+    }
+
+    fn isWindowedStereoSupported(self: *WindowsRenderer) bool {
+        var dxgi_device_raw: ?*anyopaque = null;
+        const hr_qi = self.device.lpVtbl.*.QueryInterface.?(
+            self.device,
+            &c.IID_IDXGIDevice,
+            ptrAs(*?*anyopaque, &dxgi_device_raw),
+        );
+        if (hr_qi != c.S_OK or dxgi_device_raw == null) return false;
+        const dxgi_device: *c.IDXGIDevice = ptrAs(*c.IDXGIDevice, dxgi_device_raw.?);
+        defer _ = dxgi_device.lpVtbl.*.Release.?(dxgi_device);
+
+        var adapter: ?*c.IDXGIAdapter = null;
+        const hr_adapter = dxgi_device.lpVtbl.*.GetAdapter.?(dxgi_device, &adapter);
+        if (hr_adapter != c.S_OK or adapter == null) return false;
+        defer _ = adapter.?.lpVtbl.*.Release.?(adapter.?);
+
+        var factory_raw: ?*anyopaque = null;
+        const hr_factory = adapter.?.lpVtbl.*.GetParent.?(
+            adapter.?,
+            &c.IID_IDXGIFactory2,
+            ptrAs(*?*anyopaque, &factory_raw),
+        );
+        if (hr_factory != c.S_OK or factory_raw == null) return false;
+        const factory2: *c.IDXGIFactory2 = ptrAs(*c.IDXGIFactory2, factory_raw.?);
+        defer _ = factory2.lpVtbl.*.Release.?(factory2);
+
+        return factory2.lpVtbl.*.IsWindowedStereoEnabled.?(factory2) == c.TRUE;
     }
 
     const BackBufferBundle = struct {
@@ -564,8 +628,8 @@ const WindowsRenderer = struct {
     fn createCheckerTexture(device: *c.ID3D11Device, tex_w: u32, tex_h: u32) !Checker {
         @setRuntimeSafety(false);
         const pixel_count: usize = @as(usize, tex_w) * @as(usize, tex_h);
-        const pixels = try std.heap.c_allocator.alloc(u32, pixel_count);
-        defer std.heap.c_allocator.free(pixels);
+        const pixels = try std.heap.page_allocator.alloc(u32, pixel_count);
+        defer std.heap.page_allocator.free(pixels);
 
         for (0..tex_h) |y| {
             for (0..tex_w) |x| {
@@ -1003,12 +1067,12 @@ const WindowsRenderer = struct {
         }
 
         var vertex_count: u32 = 0;
-        const verts = self.buildPlanVertices(std.heap.c_allocator, width, height, plan, legend_text) catch |err| {
+        const verts = self.buildPlanVertices(std.heap.page_allocator, width, height, plan, legend_text) catch |err| {
             log.err("render plan build failed: {}", .{err});
             _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
             return;
         };
-        defer std.heap.c_allocator.free(verts);
+        defer std.heap.page_allocator.free(verts);
         vertex_count = @as(u32, @intCast(verts.len));
 
         if (vertex_count > 0) {

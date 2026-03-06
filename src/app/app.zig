@@ -7,6 +7,8 @@ const scene_controller = @import("scene_controller.zig");
 
 pub fn run(
     frames: u32,
+    loop: bool,
+    display_3d: bool,
     width: u32,
     height: u32,
     screenshot_out: ?[]const u8,
@@ -32,6 +34,16 @@ pub fn run(
         return err;
     };
     defer renderer.deinit();
+    const display_3d_status = renderer.setDisplay3DMode(display_3d);
+    const stdout = std.fs.File.stdout().deprecatedWriter();
+    if (display_3d_status.requested and !display_3d_status.supported) {
+        try stdout.print("WARNING: DirectX 3D display mode requested but unsupported on this runtime/GPU.\n", .{});
+    }
+    try stdout.print(
+        "STATUS: display_3d requested={any} enabled={any} supported={any}\n",
+        .{ display_3d_status.requested, display_3d_status.enabled, display_3d_status.supported },
+    );
+
     var controller = scene_controller.Controller.init(scene_kind, camera_mode);
 
     var clock = time.FixedClock.init(1.0 / 60.0);
@@ -39,7 +51,7 @@ pub fn run(
     var fb_height = window.height;
 
     var frame: u32 = 0;
-    while (frame < frames) : (frame += 1) {
+    while (loop or frame < frames) : (frame +%= 1) {
         if (!win32.pumpMessages()) break;
         if (win32.takePendingResize()) |ev| {
             if (ev.width != fb_width or ev.height != fb_height) {

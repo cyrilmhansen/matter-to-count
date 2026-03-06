@@ -83,6 +83,14 @@ The rhythm should alternate between:
 Avoid constant motion.
 The power of the demo comes from contrast.
 
+### Motion identities
+
+To maintain visual consistency, operations must keep a stable motion identity:
+
+* **Shift (multiplication by base):** mechanical and frictionless. Pure horizontal movement using `easeInOutSine`, with no vertical arc and only a slight yaw to emphasize snapping into place.
+* **Carry (addition overflow):** energetic and buoyant. Follows a vertical arc and uses `easeOutCubic` on the horizontal axis so the throw feels fast and the landing feels heavy.
+* **Borrow (subtraction scarcity):** heavy and fracturing. Begins with vertical lift, then resolves into a delayed staggered cascade of smaller units, like opening a physical reserve.
+
 ---
 
 ## 5. Sequence-by-sequence storyboard
@@ -215,6 +223,11 @@ Mostly strict.
 A subtle tilt or close emphasis can happen only during the carry arc.
 Then the camera returns to a clean readable framing.
 
+### Motion identity
+
+Carry is energetic and buoyant.
+It should follow the project carry algorithm: a rising arc with strong forward travel and a visibly heavier settle into the receiving column.
+
 ### Sound
 
 This is the first major sonic event.
@@ -295,6 +308,11 @@ The viewer should instantly feel:
 Perfectly controlled.
 This is a didactic scene.
 Use the most legible angle in the whole demo.
+
+### Motion identity
+
+Shift is mechanical and frictionless.
+The displacement should feel like a precise rail-guided translation using `easeInOutSine`, with no decorative arc.
 
 ### Sound
 
@@ -422,6 +440,11 @@ Then the subtraction resolves.
 
 A slight close-up is justified when the borrow is transformed.
 But readability must remain dominant.
+
+### Motion identity
+
+Borrow is heavy and fracturing.
+The higher-order unit should lift with effort, then open into a delayed cascade of lower-order units rather than behaving like a light carry arc.
 
 ### Sound
 

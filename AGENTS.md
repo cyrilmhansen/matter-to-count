@@ -466,6 +466,15 @@ When implementing a new concept, follow this order:
 
 This order prevents artistic polish from hiding structural bugs.
 
+## 11.5. Implementing a New Visual Algorithm
+
+When an agent is tasked with animating a new semantic event such as a division remainder cascading down, the agent must follow these steps:
+
+1. **Define the math first:** write a standalone function in `src/choreo/motion.zig`, such as `calcRemainderCascade(p: f32, ...)`.
+2. **Specify the easing:** decide whether the motion is mechanical, using linear or sine easing, or heavy and organic, using cubic easing.
+3. **Write an animation sampling test:** assert that at `p = 0.0` the object is at the source, at `p = 0.5` it is at the expected arc peak or midpoint state, and at `p = 1.0` it is at the destination.
+4. **Apply to scene:** only after the math is tested should it be hooked into `src/scene/event_scene.zig` or `builder.zig`.
+
 ---
 
 ## 12. What agents should avoid
@@ -475,6 +484,8 @@ Agents working on this codebase should avoid:
 * changing arithmetic and rendering in one opaque patch;
 * introducing random motion without a seed;
 * embedding critical logic inside shader code;
+* hardcoding magic animation math inside scene builders, such as `x = x + 0.5 * sin(...)` inside `event_scene.zig`;
+* inventing easing logic on the fly instead of routing temporal progress through formalized functions in `src/choreo/easing.zig`;
 * adding unstable snapshot tests without deterministic setup;
 * coupling the story meaning to one fragile visual trick;
 * replacing readable scene data with implicit GPU-only state;
