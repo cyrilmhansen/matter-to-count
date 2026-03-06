@@ -5,6 +5,7 @@ const d3d_c = @import("../platform/win32/d3d_c.zig");
 const d3d11_manual = @import("../platform/win32/d3d11_manual.zig");
 const d3dcompiler_manual = @import("../platform/win32/d3dcompiler_manual.zig");
 const dxgi_manual = @import("../platform/win32/dxgi_manual.zig");
+const dxgi_if_manual = @import("../platform/win32/dxgi_interfaces_manual.zig");
 const com_iids = @import("../platform/win32/com_iids.zig");
 const log = @import("../util/logging.zig");
 const render_plan = @import("render_plan.zig");
@@ -52,7 +53,7 @@ const WindowsRenderer = struct {
     const LegendGap: f32 = 0.003;
     const LegendCharSpacing: f32 = 0.010;
 
-    swap_chain: *c.IDXGISwapChain,
+    swap_chain: *dxgi_if_manual.IDXGISwapChain,
     device: *c.ID3D11Device,
     context: *c.ID3D11DeviceContext,
     back_buffer: *c.ID3D11Texture2D,
@@ -113,7 +114,9 @@ const WindowsRenderer = struct {
             return null;
         }
 
-        const bb = createBackBufferAndRTV(device.?, swap_chain.?) catch |err| {
+        const swap_chain_manual: *dxgi_if_manual.IDXGISwapChain = @ptrCast(swap_chain.?);
+
+        const bb = createBackBufferAndRTV(device.?, swap_chain_manual) catch |err| {
             _ = context.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(context.?)));
             _ = device.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(device.?)));
             _ = swap_chain.?.lpVtbl.*.Release.?(@ptrFromInt(@intFromPtr(swap_chain.?)));
@@ -160,7 +163,7 @@ const WindowsRenderer = struct {
         };
 
         return .{
-            .swap_chain = swap_chain.?,
+            .swap_chain = swap_chain_manual,
             .device = device.?,
             .context = context.?,
             .back_buffer = bb.back_buffer,
@@ -204,16 +207,16 @@ const WindowsRenderer = struct {
             ptrAs(*?*anyopaque, &dxgi_device_raw),
         );
         if (hr_qi != c.S_OK or dxgi_device_raw == null) return false;
-        const dxgi_device: *c.IDXGIDevice = ptrAs(*c.IDXGIDevice, dxgi_device_raw.?);
-        defer _ = dxgi_device.lpVtbl.*.Release.?(dxgi_device);
+        const dxgi_device: *dxgi_if_manual.IDXGIDevice = ptrAs(*dxgi_if_manual.IDXGIDevice, dxgi_device_raw.?);
+        defer _ = dxgi_device.lpVtbl.Release(dxgi_device);
 
-        var adapter: ?*c.IDXGIAdapter = null;
-        const hr_adapter = dxgi_device.lpVtbl.*.GetAdapter.?(dxgi_device, &adapter);
+        var adapter: ?*dxgi_if_manual.IDXGIAdapter = null;
+        const hr_adapter = dxgi_device.lpVtbl.GetAdapter(dxgi_device, &adapter);
         if (hr_adapter != c.S_OK or adapter == null) return false;
-        defer _ = adapter.?.lpVtbl.*.Release.?(adapter.?);
+        defer _ = adapter.?.lpVtbl.Release(adapter.?);
 
         var factory_raw: ?*anyopaque = null;
-        const hr_factory = adapter.?.lpVtbl.*.GetParent.?(
+        const hr_factory = adapter.?.lpVtbl.GetParent(
             adapter.?,
             &com_iids.IID_IDXGIFactory2,
             ptrAs(*?*anyopaque, &factory_raw),
@@ -653,10 +656,10 @@ const WindowsRenderer = struct {
         return .{ .texture = texture.?, .srv = srv.? };
     }
 
-    fn createBackBufferAndRTV(device: *c.ID3D11Device, swap_chain: *c.IDXGISwapChain) !BackBufferBundle {
+    fn createBackBufferAndRTV(device: *c.ID3D11Device, swap_chain: *dxgi_if_manual.IDXGISwapChain) !BackBufferBundle {
         @setRuntimeSafety(false);
         var back_buffer_raw: ?*anyopaque = null;
-        const hr_buf = swap_chain.lpVtbl.*.GetBuffer.?(
+        const hr_buf = swap_chain.lpVtbl.GetBuffer(
             swap_chain,
             0,
             &com_iids.IID_ID3D11Texture2D,
@@ -1044,7 +1047,7 @@ const WindowsRenderer = struct {
         var vertex_count: u32 = 0;
         const verts = self.buildPlanVertices(std.heap.page_allocator, width, height, plan, legend_text) catch |err| {
             log.err("render plan build failed: {}", .{err});
-            _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
+            _ = self.swap_chain.lpVtbl.Present(self.swap_chain, 1, 0);
             return;
         };
         defer std.heap.page_allocator.free(verts);
@@ -1076,7 +1079,7 @@ const WindowsRenderer = struct {
             ptrAs(*c.ID3D11Resource, self.capture_texture),
             ptrAs(*c.ID3D11Resource, self.back_buffer),
         );
-        _ = self.swap_chain.lpVtbl.*.Present.?(self.swap_chain, 1, 0);
+        _ = self.swap_chain.lpVtbl.Present(self.swap_chain, 1, 0);
     }
 
     pub fn resize(self: *WindowsRenderer, width: u32, height: u32) !void {
@@ -1085,7 +1088,7 @@ const WindowsRenderer = struct {
 
         _ = self.rtv.lpVtbl.*.Release.?(self.rtv);
         _ = self.back_buffer.lpVtbl.*.Release.?(self.back_buffer);
-        const hr = self.swap_chain.lpVtbl.*.ResizeBuffers.?(self.swap_chain, 0, width, height, c.DXGI_FORMAT_UNKNOWN, 0);
+        const hr = self.swap_chain.lpVtbl.ResizeBuffers(self.swap_chain, 0, width, height, c.DXGI_FORMAT_UNKNOWN, 0);
         if (hr != c.S_OK) return error.D3D11ResizeBuffersFailed;
 
         const bb = try createBackBufferAndRTV(self.device, self.swap_chain);
@@ -1116,7 +1119,7 @@ const WindowsRenderer = struct {
         _ = self.back_buffer.lpVtbl.*.Release.?(self.back_buffer);
         _ = self.context.lpVtbl.*.Release.?(self.context);
         _ = self.device.lpVtbl.*.Release.?(self.device);
-        _ = self.swap_chain.lpVtbl.*.Release.?(self.swap_chain);
+        _ = self.swap_chain.lpVtbl.Release(self.swap_chain);
     }
 
     pub fn captureScreenshot(self: *WindowsRenderer, path: []const u8, width: u32, height: u32) !void {
