@@ -15,6 +15,18 @@ pub const LayoutConfig = struct {
     marker_y: f32 = -0.5,
 };
 
+pub const Anchor = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+};
+
+pub const TransferLaneKind = enum {
+    carry_lane,
+    borrow_lane,
+    row_guide,
+};
+
 fn roleDepth(role: es.EntityRole) f32 {
     return switch (role) {
         .operand_primary_digit => 0.00,
@@ -38,6 +50,23 @@ fn rowAnchorY(kind: es.PaperRowKind, row_index: u16, cfg: LayoutConfig) f32 {
     };
 }
 
+pub fn cellAnchor(column: u16, row_kind: es.PaperRowKind, row_index: u16, cfg: LayoutConfig) Anchor {
+    return .{
+        .x = @as(f32, @floatFromInt(column)) * cfg.column_spacing,
+        .y = rowAnchorY(row_kind, row_index, cfg),
+        .z = 0.0,
+    };
+}
+
+pub fn transferAnchor(lane: TransferLaneKind, column: u16, row_kind: es.PaperRowKind, row_index: u16, cfg: LayoutConfig) Anchor {
+    const base = cellAnchor(column, row_kind, row_index, cfg);
+    return switch (lane) {
+        .carry_lane => .{ .x = base.x, .y = base.y - cfg.row_spacing * 0.35, .z = 0.03 },
+        .borrow_lane => .{ .x = base.x, .y = base.y - cfg.row_spacing * 0.20, .z = 0.03 },
+        .row_guide => .{ .x = base.x, .y = base.y, .z = 0.0 },
+    };
+}
+
 pub fn mapArithmeticToDots(
     allocator: std.mem.Allocator,
     arithmetic: es.ArithmeticSceneState,
@@ -49,8 +78,14 @@ pub fn mapArithmeticToDots(
 
     var i: usize = 0;
     for (arithmetic.entities) |e| {
-        const x = e.pos_x * cfg.column_spacing;
-        const y = rowAnchorY(e.row_kind, e.row_index, cfg) + (e.pos_y - 0.5) * (cfg.row_spacing * 0.35);
+        const col_anchor = cellAnchor(e.column, e.row_kind, e.row_index, cfg);
+        const lane_anchor = switch (e.role) {
+            .carry_packet => transferAnchor(.carry_lane, e.column, e.row_kind, e.row_index, cfg),
+            .borrow_packet => transferAnchor(.borrow_lane, e.column, e.row_kind, e.row_index, cfg),
+            else => transferAnchor(.row_guide, e.column, e.row_kind, e.row_index, cfg),
+        };
+        const x = col_anchor.x + (e.pos_x - @as(f32, @floatFromInt(e.column))) * cfg.column_spacing;
+        const y = lane_anchor.y + (e.pos_y - 0.5) * (cfg.row_spacing * 0.35);
         const z = roleDepth(e.role) + e.pos_z * 0.4;
         dots[i] = .{ .x = x, .y = y, .z = z };
         i += 1;
@@ -165,4 +200,15 @@ test "layout y-axis follows explicit paper row semantics" {
     const final_source_dot = firstRoleDot(final_scene, mapped_final, .operand_primary_digit) orelse return error.TestUnexpectedResult;
     const final_result_dot = firstRoleDot(final_scene, mapped_final, .result_digit) orelse return error.TestUnexpectedResult;
     try std.testing.expect(final_result_dot.y > final_source_dot.y);
+}
+
+test "layout anchor API provides deterministic cell and transfer lanes" {
+    const cfg = LayoutConfig{};
+    const cell = cellAnchor(2, .operand_primary, 1, cfg);
+    const carry_lane = transferAnchor(.carry_lane, 2, .carry, 0, cfg);
+    const borrow_lane = transferAnchor(.borrow_lane, 2, .borrow_reserve, 0, cfg);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.6), cell.x, 0.0001);
+    try std.testing.expect(carry_lane.y < cell.y);
+    try std.testing.expect(borrow_lane.y > carry_lane.y);
 }

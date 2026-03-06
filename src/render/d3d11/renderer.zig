@@ -374,7 +374,8 @@ const WindowsRenderer = struct {
             \\    }
             \\    if (d < h.d) { h.d = d; h.col = inst_col[i]; h.shape = shape; }
             \\  }
-            \\  float ground = p.y + 0.72;
+            \\  // Keep ground orientation consistent with semantic-up display convention.
+            \\  float ground = -p.y + 0.72;
             \\  if (ground < h.d) {
             \\    h.d = ground;
             \\    h.col = float4(0.16, 0.15, 0.14, 1.0);
@@ -666,7 +667,9 @@ const WindowsRenderer = struct {
         for (plan.points[0..count], 0..) |p, i| {
             cb.inst_data0[i] = .{
                 p.x - self.frame_center[0],
-                p.y - self.frame_center[1],
+                // Screen-space convention: positive semantic row direction should
+                // appear upward to match storyboard paper layout.
+                -(p.y - self.frame_center[1]),
                 p.z - self.frame_center[2],
                 p.scale,
             };

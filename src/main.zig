@@ -11,6 +11,8 @@ const Config = struct {
     smoke: bool = false,
     loop: bool = false,
     display_3d: bool = false,
+    fullscreen: bool = false,
+    speed: f32 = 0.5,
     frames: u32 = 120,
     seed: u64 = 1,
     width: u32 = 1280,
@@ -20,7 +22,33 @@ const Config = struct {
     camera_mode: scene_controller.CameraMode = .storyboard,
     render_view: @import("render/d3d11.zig").RenderView = .beauty,
     sum_composition_overlay: bool = false,
+    story_demo: bool = false,
+    story_durations: scene_controller.Controller.StoryDurations = .{},
 };
+
+fn parseStoryDurationsSpec(spec: []const u8, current: scene_controller.Controller.StoryDurations) !scene_controller.Controller.StoryDurations {
+    var out = current;
+    var it = std.mem.tokenizeScalar(u8, spec, ',');
+    while (it.next()) |entry| {
+        const eq = std.mem.indexOfScalar(u8, entry, '=') orelse return error.InvalidArguments;
+        const key = std.mem.trim(u8, entry[0..eq], " \t");
+        const val_txt = std.mem.trim(u8, entry[eq + 1 ..], " \t");
+        const seconds = try std.fmt.parseFloat(f32, val_txt);
+        if (seconds <= 0.0) return error.InvalidArguments;
+        if (std.mem.eql(u8, key, "add")) {
+            out.add_s = seconds;
+        } else if (std.mem.eql(u8, key, "shift")) {
+            out.shift_s = seconds;
+        } else if (std.mem.eql(u8, key, "sub")) {
+            out.sub_s = seconds;
+        } else if (std.mem.eql(u8, key, "mul")) {
+            out.mul_s = seconds;
+        } else {
+            return error.InvalidArguments;
+        }
+    }
+    return out;
+}
 
 fn parseArgs(allocator: std.mem.Allocator) !Config {
     var cfg = Config{};
@@ -34,10 +62,23 @@ fn parseArgs(allocator: std.mem.Allocator) !Config {
             cfg.smoke = true;
         } else if (std.mem.eql(u8, arg, "--loop")) {
             cfg.loop = true;
+        } else if (std.mem.eql(u8, arg, "--story-demo")) {
+            cfg.story_demo = true;
         } else if (std.mem.eql(u8, arg, "--display-3d")) {
             cfg.display_3d = true;
+        } else if (std.mem.eql(u8, arg, "--fullscreen")) {
+            cfg.fullscreen = true;
         } else if (std.mem.eql(u8, arg, "--sum-overlay")) {
             cfg.sum_composition_overlay = true;
+        } else if (std.mem.eql(u8, arg, "--speed")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            cfg.speed = try std.fmt.parseFloat(f32, argv[i]);
+            if (cfg.speed <= 0.0) return error.InvalidArguments;
+        } else if (std.mem.eql(u8, arg, "--story-seconds")) {
+            i += 1;
+            if (i >= argv.len) return error.InvalidArguments;
+            cfg.story_durations = try parseStoryDurationsSpec(argv[i], cfg.story_durations);
         } else if (std.mem.eql(u8, arg, "--frames")) {
             i += 1;
             if (i >= argv.len) return error.InvalidArguments;
@@ -114,11 +155,15 @@ pub fn main() !void {
             cfg.display_3d,
             cfg.width,
             cfg.height,
+            cfg.fullscreen,
+            cfg.speed,
             cfg.screenshot_out,
             cfg.scene_kind,
             cfg.camera_mode,
             cfg.render_view,
             cfg.sum_composition_overlay,
+            cfg.story_demo,
+            cfg.story_durations,
         );
     }
 

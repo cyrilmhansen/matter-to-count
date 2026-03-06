@@ -26,6 +26,7 @@ pub const CS_HREDRAW: UINT = 0x0002;
 pub const CS_VREDRAW: UINT = 0x0001;
 
 pub const WS_OVERLAPPEDWINDOW: DWORD = 0x00CF0000;
+pub const WS_POPUP: DWORD = 0x80000000;
 pub const WS_VISIBLE: DWORD = 0x10000000;
 
 pub const CW_USEDEFAULT: i32 = -2147483648;
@@ -34,7 +35,9 @@ pub const SW_SHOW: i32 = 5;
 
 pub const WM_DESTROY: UINT = 0x0002;
 pub const WM_SIZE: UINT = 0x0005;
+pub const WM_KEYDOWN: UINT = 0x0100;
 pub const WM_QUIT: UINT = 0x0012;
+pub const VK_ESCAPE: WPARAM = 0x1B;
 
 pub const PM_REMOVE: UINT = 0x0001;
 
@@ -105,6 +108,10 @@ extern "user32" fn ReleaseDC(hWnd: HWND, hDC: HDC) callconv(.winapi) i32;
 extern "user32" fn LoadCursorW(hInstance: HINSTANCE, lpCursorName: ?*const anyopaque) callconv(.winapi) HCURSOR;
 extern "user32" fn DrawIconEx(hdc: HDC, xLeft: i32, yTop: i32, hIcon: HCURSOR, cxWidth: i32, cyWidth: i32, istepIfAniCur: UINT, hbrFlickerFreeDraw: HBRUSH, diFlags: UINT) callconv(.winapi) BOOL;
 extern "user32" fn SetCursor(hCursor: HCURSOR) callconv(.winapi) HCURSOR;
+extern "user32" fn GetSystemMetrics(nIndex: i32) callconv(.winapi) i32;
+
+const SM_CXSCREEN: i32 = 0;
+const SM_CYSCREEN: i32 = 1;
 
 const IDC_CROSS_INT: usize = 32515;
 const DI_NORMAL: UINT = 0x0003;
@@ -139,11 +146,18 @@ fn wndProc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) callconv(.wina
             g_pending_resize = .{ .width = w, .height = h };
             return 0;
         },
+        WM_KEYDOWN => {
+            if (wparam == VK_ESCAPE) {
+                PostQuitMessage(0);
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
+        },
         else => return DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
 
-pub fn create(allocator: std.mem.Allocator, title: []const u8, width: u32, height: u32) !Window {
+pub fn create(allocator: std.mem.Allocator, title: []const u8, width: u32, height: u32, fullscreen: bool) !Window {
     const class_name = try toWideZ(allocator, "MatterToCountWindowClass");
     defer allocator.free(class_name);
 
@@ -170,18 +184,35 @@ pub fn create(allocator: std.mem.Allocator, title: []const u8, width: u32, heigh
 
     if (RegisterClassExW(&wc) == 0) return error.Win32RegisterClassFailed;
 
-    var rect = RECT{ .left = 0, .top = 0, .right = @as(i32, @intCast(width)), .bottom = @as(i32, @intCast(height)) };
-    if (AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, 0) == 0) return error.Win32AdjustRectFailed;
+    var style: DWORD = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+    var win_x: i32 = CW_USEDEFAULT;
+    var win_y: i32 = CW_USEDEFAULT;
+    var win_w: i32 = @as(i32, @intCast(width));
+    var win_h: i32 = @as(i32, @intCast(height));
+
+    if (fullscreen) {
+        style = WS_POPUP | WS_VISIBLE;
+        win_x = 0;
+        win_y = 0;
+        win_w = GetSystemMetrics(SM_CXSCREEN);
+        win_h = GetSystemMetrics(SM_CYSCREEN);
+        if (win_w <= 0 or win_h <= 0) return error.Win32CreateWindowFailed;
+    } else {
+        var rect = RECT{ .left = 0, .top = 0, .right = win_w, .bottom = win_h };
+        if (AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, 0) == 0) return error.Win32AdjustRectFailed;
+        win_w = rect.right - rect.left;
+        win_h = rect.bottom - rect.top;
+    }
 
     const hwnd = CreateWindowExW(
         0,
         class_name.ptr,
         window_title.ptr,
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        rect.right - rect.left,
-        rect.bottom - rect.top,
+        style,
+        win_x,
+        win_y,
+        win_w,
+        win_h,
         null,
         null,
         instance,
@@ -192,7 +223,7 @@ pub fn create(allocator: std.mem.Allocator, title: []const u8, width: u32, heigh
     _ = ShowWindow(hwnd, SW_SHOW);
     _ = UpdateWindow(hwnd);
 
-    return .{ .hwnd = hwnd, .width = width, .height = height };
+    return .{ .hwnd = hwnd, .width = @as(u32, @intCast(win_w)), .height = @as(u32, @intCast(win_h)) };
 }
 
 pub fn destroy(window: Window) void {

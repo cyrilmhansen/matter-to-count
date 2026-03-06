@@ -61,23 +61,77 @@ pub const FrameData = struct {
 pub const Controller = struct {
     pub const phase_frames: u32 = 30;
     pub const tick_count: u32 = 5;
+    pub const sim_fps: f32 = 60.0;
+
+    pub const DurationRange = struct { min_s: f32, max_s: f32 };
+    pub const StoryDurations = struct {
+        add_s: f32 = 25.0,
+        shift_s: f32 = 15.0,
+        sub_s: f32 = 25.0,
+        mul_s: f32 = 32.0,
+    };
+
+    pub const StoryStep = struct {
+        kind: SceneKind,
+        seconds: f32,
+        frames: u32,
+    };
 
     scene_kind: SceneKind,
     camera_mode: CameraMode,
     sum_composition_overlay: bool,
+    playback_speed: f32,
     frame_index: u32 = 0,
 
-    pub fn init(scene_kind: SceneKind, camera_mode: CameraMode, sum_composition_overlay: bool) Controller {
+    pub fn init(scene_kind: SceneKind, camera_mode: CameraMode, sum_composition_overlay: bool, playback_speed: f32) Controller {
         return .{
             .scene_kind = scene_kind,
             .camera_mode = camera_mode,
             .sum_composition_overlay = sum_composition_overlay,
+            .playback_speed = @max(0.01, playback_speed),
+        };
+    }
+
+    pub fn cycleFrames() u32 {
+        return tick_count * phase_frames;
+    }
+
+    pub fn cycleSeconds() f32 {
+        return @as(f32, @floatFromInt(cycleFrames())) / sim_fps;
+    }
+
+    pub fn storyboardTarget(kind: SceneKind) DurationRange {
+        return switch (kind) {
+            // Storyboard ranges (seconds):
+            // Scene 3 (addition with carry), Scene 9 (borrow),
+            // Scene 5 (shift), Scene 10 (multiplication rows).
+            .add => .{ .min_s = 20.0, .max_s = 30.0 },
+            .sub => .{ .min_s = 20.0, .max_s = 30.0 },
+            .shift => .{ .min_s = 12.0, .max_s = 18.0 },
+            .mul => .{ .min_s = 25.0, .max_s = 40.0 },
+        };
+    }
+
+    pub fn secondsToFrames(seconds: f32) u32 {
+        if (seconds <= 0.0) return 1;
+        const frames_f = seconds * sim_fps;
+        const rounded: u32 = @intFromFloat(@round(frames_f));
+        return @max(1, rounded);
+    }
+
+    pub fn buildStoryProgram(d: StoryDurations) [4]StoryStep {
+        return .{
+            .{ .kind = .add, .seconds = d.add_s, .frames = secondsToFrames(d.add_s) },
+            .{ .kind = .shift, .seconds = d.shift_s, .frames = secondsToFrames(d.shift_s) },
+            .{ .kind = .sub, .seconds = d.sub_s, .frames = secondsToFrames(d.sub_s) },
+            .{ .kind = .mul, .seconds = d.mul_s, .frames = secondsToFrames(d.mul_s) },
         };
     }
 
     pub fn nextFrame(self: *Controller, allocator: std.mem.Allocator) !FrameData {
         const cycle: u32 = tick_count * phase_frames;
-        const local = self.frame_index % cycle;
+        const effective_frame: u32 = @as(u32, @intFromFloat(@floor(@as(f32, @floatFromInt(self.frame_index)) * self.playback_speed)));
+        const local = effective_frame % cycle;
         const tick = local / phase_frames;
         const phase = @as(f32, @floatFromInt(local % phase_frames)) / @as(f32, @floatFromInt(phase_frames));
         const phase_pct: u32 = ((local % phase_frames) * 100) / phase_frames;
